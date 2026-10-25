@@ -17,8 +17,20 @@ import { HttpError } from "./errors";
 const KEY_RE = /^[A-Za-z0-9_\-./]+$/;
 const LOCAL_ROOT = path.join(process.cwd(), ".data");
 
+/**
+ * Blob token: BLOB_READ_WRITE_TOKEN by default, but Vercel lets a store be connected with a custom
+ * prefix (e.g. MOKA_IMAGES_READ_WRITE_TOKEN). Accept any *_READ_WRITE_TOKEN holding a Blob token.
+ */
+function blobToken(): string | undefined {
+  if (process.env.BLOB_READ_WRITE_TOKEN) return process.env.BLOB_READ_WRITE_TOKEN;
+  for (const [k, v] of Object.entries(process.env)) {
+    if (k.endsWith("READ_WRITE_TOKEN") && v?.startsWith("vercel_blob_rw_")) return v;
+  }
+  return undefined;
+}
+
 export function useBlob() {
-  return Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+  return Boolean(blobToken());
 }
 
 type Access = "private" | "public";
@@ -33,7 +45,7 @@ function assertStorageConfigured() {
   if (!useBlob() && process.env.VERCEL === "1") {
     throw new HttpError(
       500,
-      "האחסון לא מחובר: חסר BLOB_READ_WRITE_TOKEN. ב־Vercel: Storage → Blob → Connect לפרויקט, ואז Redeploy.",
+      "האחסון לא מחובר: לא נמצא טוקן של Vercel Blob. ב־Vercel: Storage → בחרו את ה־Blob → Connect Project → moka-studio, ואז Redeploy.",
     );
   }
 }
@@ -49,7 +61,7 @@ export async function putObject(key: string, body: Buffer, contentType: string) 
   assertStorageConfigured();
   if (useBlob()) {
     const write = (a: Access) =>
-      blobPut(key, body, { access: a, contentType, addRandomSuffix: false, allowOverwrite: false });
+      blobPut(key, body, { access: a, contentType, addRandomSuffix: false, allowOverwrite: false, token: blobToken() });
     try {
       await write(access());
     } catch (err) {
@@ -74,10 +86,10 @@ export async function getObject(key: string): Promise<{ body: Buffer; contentTyp
   if (useBlob()) {
     let res;
     try {
-      res = await blobGet(key, { access: access() });
+      res = await blobGet(key, { access: access(), token: blobToken() });
     } catch (err) {
       if (!/access|private|public/i.test(String((err as Error)?.message))) throw err;
-      res = await blobGet(key, { access: other(access()) });
+      res = await blobGet(key, { access: other(access()), token: blobToken() });
       detectedAccess = other(access());
     }
     if (!res || res.statusCode !== 200) return null;
@@ -99,7 +111,7 @@ export async function listKeys(prefix: string): Promise<string[]> {
     const keys: string[] = [];
     let cursor: string | undefined;
     do {
-      const page = await blobList({ prefix, cursor, limit: 1000 });
+      const page = await blobList({ prefix, cursor, limit: 1000, token: blobToken() });
       keys.push(...page.blobs.map((b) => b.pathname));
       cursor = page.hasMore ? page.cursor : undefined;
     } while (cursor);
@@ -131,7 +143,7 @@ export async function listFolders(prefix: string): Promise<string[]> {
     const names: string[] = [];
     let cursor: string | undefined;
     do {
-      const page = await blobList({ prefix, cursor, mode: "folded", limit: 1000 });
+      const page = await blobList({ prefix, cursor, mode: "folded", limit: 1000, token: blobToken() });
       names.push(...page.folders.map((f) => f.slice(prefix.length).replace(/\/$/, "")));
       cursor = page.hasMore ? page.cursor : undefined;
     } while (cursor);
