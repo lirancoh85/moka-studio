@@ -2,6 +2,7 @@ import "server-only";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { put as blobPut, get as blobGet, list as blobList } from "@vercel/blob";
+import { HttpError } from "./errors";
 
 /**
  * Append-only object storage.
@@ -20,8 +21,21 @@ export function useBlob() {
   return Boolean(process.env.BLOB_READ_WRITE_TOKEN);
 }
 
-function access(): "private" | "public" {
-  return process.env.BLOB_ACCESS === "public" ? "public" : "private";
+type Access = "private" | "public";
+let detectedAccess: Access | null = null;
+function access(): Access {
+  return detectedAccess ?? (process.env.BLOB_ACCESS === "public" ? "public" : "private");
+}
+const other = (a: Access): Access => (a === "private" ? "public" : "private");
+
+/** On Vercel the filesystem is read-only, so a missing Blob token must fail loudly, not as a vague 500. */
+function assertStorageConfigured() {
+  if (!useBlob() && process.env.VERCEL === "1") {
+    throw new HttpError(
+      500,
+      "האחסון לא מחובר: חסר BLOB_READ_WRITE_TOKEN. ב־Vercel: Storage → Blob → Connect לפרויקט, ואז Redeploy.",
+    );
+  }
 }
 
 export function assertKey(key: string) {
@@ -32,13 +46,21 @@ export function assertKey(key: string) {
 
 export async function putObject(key: string, body: Buffer, contentType: string) {
   assertKey(key);
+  assertStorageConfigured();
   if (useBlob()) {
-    await blobPut(key, body, {
-      access: access(),
-      contentType,
-      addRandomSuffix: false,
-      allowOverwrite: false,
-    });
+    const write = (a: Access) =>
+      blobPut(key, body, { access: a, contentType, addRandomSuffix: false, allowOverwrite: false });
+    try {
+      await write(access());
+    } catch (err) {
+      // Store created with the other access mode than BLOB_ACCESS says: switch once and remember.
+      if (/access|private|public/i.test(String((err as Error)?.message))) {
+        await write(other(access()));
+        detectedAccess = other(access());
+        return;
+      }
+      throw err;
+    }
     return;
   }
   const file = path.join(LOCAL_ROOT, key);
@@ -48,8 +70,16 @@ export async function putObject(key: string, body: Buffer, contentType: string) 
 
 export async function getObject(key: string): Promise<{ body: Buffer; contentType: string } | null> {
   assertKey(key);
+  assertStorageConfigured();
   if (useBlob()) {
-    const res = await blobGet(key, { access: access() });
+    let res;
+    try {
+      res = await blobGet(key, { access: access() });
+    } catch (err) {
+      if (!/access|private|public/i.test(String((err as Error)?.message))) throw err;
+      res = await blobGet(key, { access: other(access()) });
+      detectedAccess = other(access());
+    }
     if (!res || res.statusCode !== 200) return null;
     const body = Buffer.from(await new Response(res.stream).arrayBuffer());
     return { body, contentType: res.blob.contentType };

@@ -29,11 +29,8 @@ export function assertProjectId(id: string) {
   if (!ID_RE.test(id)) throw new HttpError(404, "הפרויקט לא נמצא");
 }
 
-export class HttpError extends Error {
-  constructor(public status: number, message: string) {
-    super(message);
-  }
-}
+export { HttpError } from "./errors";
+import { HttpError } from "./errors";
 
 const root = (id: string) => `projects/${id}`;
 const stamp = () => Date.now().toString().padStart(15, "0");

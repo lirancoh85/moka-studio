@@ -18,7 +18,8 @@ export function route<P = Record<string, string>>(
         return NextResponse.json({ error: err.message }, { status: err.status });
       }
       console.error(err);
-      return NextResponse.json({ error: "שגיאה לא צפויה בשרת. נסו שוב." }, { status: 500 });
+      const detail = String((err as Error)?.message ?? err).slice(0, 240);
+      return NextResponse.json({ error: `שגיאה בשרת: ${detail}` }, { status: 500 });
     }
   };
 }
