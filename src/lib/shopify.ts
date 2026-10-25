@@ -9,6 +9,17 @@ import { HttpError } from "./project";
 
 let cached: { token: string; expiresAt: number } | null = null;
 
+/**
+ * Where the Hebrew subtitle is written: a product metafield, "custom.subtitle" by default.
+ * Set SHOPIFY_SUBTITLE_METAFIELD to another namespace.key, or to "none" to skip it.
+ */
+function subtitleField(): { namespace: string; key: string } | null {
+  const v = (process.env.SHOPIFY_SUBTITLE_METAFIELD || "custom.subtitle").trim();
+  if (v === "none") return null;
+  const [namespace, key] = v.split(".");
+  return namespace && key ? { namespace, key } : null;
+}
+
 function domain() {
   const d = (process.env.SHOPIFY_STORE_DOMAIN || "").replace(/^https?:\/\//, "").replace(/\/.*$/, "");
   if (!d) throw new HttpError(500, "חסר SHOPIFY_STORE_DOMAIN בהגדרות השרת");
@@ -104,6 +115,7 @@ export async function createDraftProduct(input: {
   productType: string;
   tags: string[];
   handle: string;
+  subtitle?: string;
   images: { filename: string; body: Buffer; alt: string }[];
 }) {
   const sources: { originalSource: string; alt: string; mediaContentType: "IMAGE" }[] = [];
@@ -133,6 +145,18 @@ export async function createDraftProduct(input: {
         tags: input.tags,
         handle,
         status: "DRAFT",
+        ...(input.subtitle && subtitleField()
+          ? {
+              metafields: [
+                {
+                  namespace: subtitleField()!.namespace,
+                  key: subtitleField()!.key,
+                  type: "single_line_text_field",
+                  value: input.subtitle,
+                },
+              ],
+            }
+          : {}),
       },
       media: sources,
     },

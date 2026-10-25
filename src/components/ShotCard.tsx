@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { SLOT_LABELS, type Aspect, type ImageVersion, type Slot, type SlotState } from "@/lib/types";
+import type { Aspect, ImageVersion, Slot, SlotState } from "@/lib/types";
 
 export type Busy = { mode: "generate" | "regenerate" | "edit"; startedAt: number } | null;
 
@@ -14,6 +14,8 @@ const BUSY_TEXT = { generate: "מצלמים", regenerate: "מצלמים גרסה
 
 export function ShotCard(props: {
   slot: Slot;
+  label: { he: string; hint: string };
+  onRemove?: () => void;
   aspect: Aspect;
   versions: ImageVersion[];
   state: SlotState;
@@ -28,7 +30,7 @@ export function ShotCard(props: {
   onOpen: (v: ImageVersion) => void;
 }) {
   const { slot, versions, state, busy, error } = props;
-  const label = SLOT_LABELS[slot];
+  const label = props.label;
   const current = versions.find((v) => v.id === state.currentId) ?? null;
   const [editing, setEditing] = useState(false);
   const [instruction, setInstruction] = useState("");
@@ -48,8 +50,17 @@ export function ShotCard(props: {
       <header className="flex items-baseline justify-between gap-3 px-4 pt-3 pb-2.5">
         <div className="min-w-0">
           <h3 className="font-display text-xl leading-tight">{label.he}</h3>
-          <p className="truncate text-sm text-ink-soft">{label.hint}</p>
+          <p className="truncate text-sm text-ink-soft" title={label.hint}>{label.hint}</p>
         </div>
+        {props.onRemove && !busy && (
+          <button
+            type="button"
+            onClick={props.onRemove}
+            className="shrink-0 text-sm text-ink-soft underline-offset-4 hover:text-error hover:underline"
+          >
+            הסרה
+          </button>
+        )}
       </header>
 
       <div className={`relative ${ASPECT_CLASS[props.aspect]} overflow-hidden ${busy ? "developing" : "photo-well"}`}>
@@ -86,7 +97,7 @@ export function ShotCard(props: {
               onClick={props.onGenerate}
               className="bg-ink px-5 py-2 font-semibold text-paper hover:bg-mocha-deep disabled:opacity-40"
             >
-              צלמו {label.he}
+              צלמו את התמונה
             </button>
           </div>
         )}
@@ -143,7 +154,7 @@ export function ShotCard(props: {
                   if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) e.currentTarget.form?.requestSubmit();
                   if (e.key === "Escape") setEditing(false);
                 }}
-                placeholder={EDIT_PLACEHOLDER[slot]}
+                placeholder={EDIT_PLACEHOLDER[slot] ?? EDIT_PLACEHOLDER.lifestyle}
                 className="mt-1 w-full resize-none border border-line bg-plaster/40 px-3 py-2 text-[15px] outline-none focus:border-ink"
               />
               <div className="mt-2 flex gap-2">
@@ -196,9 +207,9 @@ export function ShotCard(props: {
   );
 }
 
-const EDIT_PLACEHOLDER: Record<Slot, string> = {
-  hero: "לדוגמה: רקע בגוון חול חם יותר, צל רך יותר",
+const EDIT_PLACEHOLDER: Record<string, string> = {
   lifestyle: "לדוגמה: הוסיפו שטיח צמר בהיר והסירו את העציץ",
+  angle: "לדוגמה: מצלמה קצת יותר נמוכה, אור בוקר רך",
   closeup: "לדוגמה: התמקדו בתפר של משענת היד",
   white: "לדוגמה: זווית חזיתית במקום שלושה רבעים",
 };

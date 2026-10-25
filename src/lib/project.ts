@@ -11,8 +11,9 @@ import {
   putRecord,
 } from "./storage";
 import {
-  SLOTS,
-  emptyState,
+  emptySlot,
+  isValidSlot,
+  projectSlots,
   type ImageVersion,
   type ProjectBundle,
   type ProjectMeta,
@@ -66,7 +67,7 @@ export async function updateMeta(id: string, patch: Partial<ProjectMeta>) {
 }
 
 export async function getState(id: string): Promise<StudioState> {
-  return (await getRecord<StudioState>(`${root(id)}/state`)) ?? emptyState();
+  return (await getRecord<StudioState>(`${root(id)}/state`)) ?? {};
 }
 
 export async function saveState(id: string, state: StudioState) {
@@ -123,14 +124,17 @@ export async function listVersions(id: string): Promise<Record<Slot, ImageVersio
   const items = (await Promise.all(keys.map((k) => getJson<ImageVersion>(k)))).filter(
     (x): x is ImageVersion => Boolean(x),
   );
-  const out = Object.fromEntries(SLOTS.map((s) => [s, [] as ImageVersion[]])) as Record<Slot, ImageVersion[]>;
-  for (const v of items) out[v.slot]?.push(v);
+  const out: Record<Slot, ImageVersion[]> = {};
+  for (const v of items) {
+    if (!isValidSlot(v.slot)) continue; // e.g. "hero" from older projects
+    (out[v.slot] ??= []).push(v);
+  }
   return out;
 }
 
 export async function findVersion(id: string, slot: Slot, versionId: string) {
   const versions = await listVersions(id);
-  const v = versions[slot].find((x) => x.id === versionId);
+  const v = (versions[slot] ?? []).find((x) => x.id === versionId);
   if (!v) throw new HttpError(404, "גרסת התמונה לא נמצאה");
   return v;
 }
@@ -155,6 +159,10 @@ export async function loadBundle(id: string): Promise<ProjectBundle> {
     getState(id),
     getShopify(id),
   ]);
+  for (const slot of projectSlots(meta)) {
+    versions[slot] ??= [];
+    state[slot] ??= emptySlot();
+  }
   return { meta, sources, versions, state, shopify };
 }
 
@@ -167,10 +175,11 @@ export async function listProjects(limit = 24) {
         const sources = await getSources(meta);
         const versions = await listVersions(id);
         const state = await getState(id);
-        const heroId = state.hero.currentId;
+        const coverId = state.lifestyle?.currentId;
         const cover =
-          versions.hero.find((v) => v.id === heroId)?.url ??
-          versions.white.at(-1)?.url ??
+          versions.lifestyle?.find((v) => v.id === coverId)?.url ??
+          versions.lifestyle?.at(-1)?.url ??
+          versions.white?.at(-1)?.url ??
           sources[0]?.url ??
           null;
         return { id, name: meta.name, createdAt: meta.createdAt, cover, type: meta.analysis?.furnitureTypeHe ?? null };

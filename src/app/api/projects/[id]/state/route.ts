@@ -1,12 +1,13 @@
 import { z } from "zod";
 import { route } from "@/lib/http";
 import { HttpError, assertProjectId, saveState } from "@/lib/project";
+import { isValidSlot } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const SlotZ = z.object({ currentId: z.string().nullable(), approved: z.boolean() });
-const StateZ = z.object({ hero: SlotZ, lifestyle: SlotZ, closeup: SlotZ, white: SlotZ });
+const StateZ = z.record(z.string().refine(isValidSlot), SlotZ);
 
 export const PUT = route<{ id: string }>(async (req, { id }) => {
   assertProjectId(id);

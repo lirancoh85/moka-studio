@@ -2,7 +2,7 @@
 
 Turns showroom photos of a furniture product into four Shopify-ready product images, names the product in Hebrew, and sends it to Shopify as a draft.
 
-**Flow:** upload 1–5 photos → AI analysis (type, colors, materials, details, Hebrew name suggestions, store description) → generate Hero / Lifestyle / Material close-up / White background in parallel → approve, reshoot or edit each image (with version history) → download a ZIP or send to Shopify as a draft product.
+**Flow:** upload 1–5 photos → AI analysis (type, colors, materials, details, English product name + Hebrew subtitle suggestions, store description) → generate Lifestyle / Lifestyle from another angle (same room) / Material close-up / White background, plus optional extra shots in any style → approve, reshoot or edit each image (with version history) → download a ZIP or send to Shopify as a draft product.
 
 Stack: Next.js 15 (App Router) · OpenAI GPT Image (default) or Google Gemini · Vercel Blob storage · Shopify Admin GraphQL API · sharp.
 
@@ -83,9 +83,9 @@ Without `BLOB_READ_WRITE_TOKEN`, files are stored in `./.data`.
 
 **Images.** All outputs are 2048px on the long edge (Shopify's recommended size), JPEG q92 with full chroma. Aspect ratio is per product: square (default), portrait 3:4 or landscape 4:3.
 
-**Export order** (ZIP filenames and Shopify media order): hero → white → lifestyle → detail. Hero becomes the featured image. Files are named `{handle}-01-hero.jpg` etc.
+**Export order** (ZIP filenames and Shopify media order): lifestyle → white → lifestyle angle → detail → extras. Lifestyle becomes the featured image. Files are named `{handle}-01-lifestyle.jpg` etc.
 
-**Shopify.** Creates a **draft** product with the Hebrew name, description HTML, product type, tags, vendor and approved images. Nothing is published. Price, variants, inventory and collections are left for you to set in Shopify.
+**Shopify.** Creates a **draft** product with the English name as title, the Hebrew subtitle in the `custom.subtitle` metafield (configurable with `SHOPIFY_SUBTITLE_METAFIELD`), description HTML, product type, tags, vendor and approved images. Nothing is published. Price, variants, inventory and collections are left for you to set in Shopify.
 
 **Storage model.** Every object has a unique key and is never overwritten. Edits to name/state write a new timestamped record and the newest one wins, which avoids CDN cache staleness and race conditions between parallel generations.
 
@@ -102,6 +102,7 @@ Without `BLOB_READ_WRITE_TOKEN`, files are stored in `./.data`.
 | `GEMINI_IMAGE_SIZE` | `2K` | `1K`, `2K`, `4K` |
 | `SHOPIFY_API_VERSION` | `2025-10` | |
 | `SHOPIFY_VENDOR` | `MOKA` | |
+| `SHOPIFY_SUBTITLE_METAFIELD` | `custom.subtitle` | `namespace.key`, or `none` |
 
 Model IDs change as OpenAI and Google ship new versions — if a call returns "model not found", update the variable.
 

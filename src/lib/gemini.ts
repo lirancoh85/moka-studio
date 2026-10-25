@@ -80,6 +80,7 @@ export const AnalysisZ = z.object({
   heroBackdropEn: z.string().min(2),
   catalogAngle: z.enum(["front", "three-quarter"]),
   nameSuggestions: z.array(z.string().min(2)).min(1),
+  subtitleSuggestions: z.array(z.string().min(2)).default([]),
   descriptionHtmlHe: z.string(),
   tagsHe: z.array(z.string()),
   handle: z.string(),
@@ -114,7 +115,8 @@ export function finalizeAnalysis(text: string): ProductAnalysis {
     ...parsed,
     descriptionHtmlHe: sanitizeHtml(parsed.descriptionHtmlHe),
     handle: slugify(parsed.handle) || "moka-product",
-    nameSuggestions: [...new Set(parsed.nameSuggestions.map((s) => s.trim()))].slice(0, 5),
+    nameSuggestions: [...new Set(parsed.nameSuggestions.map((s) => s.trim().toUpperCase()))].slice(0, 5),
+    subtitleSuggestions: [...new Set(parsed.subtitleSuggestions.map((s) => s.trim()))].slice(0, 3),
   };
 }
 

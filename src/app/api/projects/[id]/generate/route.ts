@@ -4,23 +4,25 @@ import { HttpError, addVersion, findVersion, getMeta, getSources, listVersions, 
 import { generateImage, imageModel } from "@/lib/ai";
 import { finalizeOutput } from "@/lib/imaging";
 import { editPrompt, shotPrompt } from "@/lib/prompts";
-import { SLOTS } from "@/lib/types";
+import { isValidSlot } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 const Body = z.object({
-  slot: z.enum(SLOTS),
+  slot: z.string().refine(isValidSlot),
   mode: z.enum(["generate", "regenerate", "edit"]),
   instruction: z.string().trim().max(1000).optional(),
   fromVersionId: z.string().optional(),
+  /** For the angle shot: the current lifestyle version, so both look like one photo session. */
+  lifestyleVersionId: z.string().optional(),
 });
 
 export const POST = route<{ id: string }>(async (req, { id }) => {
   const parsed = Body.safeParse(await req.json());
   if (!parsed.success) throw new HttpError(400, "בקשה לא תקינה");
-  const { slot, mode, instruction, fromVersionId } = parsed.data;
+  const { slot, mode, instruction, fromVersionId, lifestyleVersionId } = parsed.data;
 
   const meta = await getMeta(id);
   if (!meta.analysis) throw new HttpError(409, "יש לנתח את המוצר לפני יצירת תמונות");
@@ -38,12 +40,23 @@ export const POST = route<{ id: string }>(async (req, { id }) => {
     prompt = editPrompt(slot, meta.analysis, refs.length, instruction);
     images = [baseImg, ...refs];
   } else {
-    const existing = (await listVersions(id))[slot].filter((v) => v.kind !== "edit").length;
+    const extra = slot.startsWith("extra") ? meta.extras?.find((e) => e.slot === slot) : undefined;
+    if (slot.startsWith("extra") && !extra) throw new HttpError(404, "התמונה הנוספת לא נמצאה");
+    const existing = ((await listVersions(id))[slot] ?? []).filter((v) => v.kind !== "edit").length;
+
+    let match: Buffer | null = null;
+    if (slot === "angle" && lifestyleVersionId) {
+      const lv = await findVersion(id, "lifestyle", lifestyleVersionId).catch(() => null);
+      if (lv) match = (await loadImage(lv.key)).body;
+    }
+
     prompt = shotPrompt(slot, meta.analysis, refs.length, {
       interior: meta.interiorOverride,
       variation: mode === "regenerate" ? existing + 1 : undefined,
+      extra: extra ? { style: extra.style, brief: extra.brief } : undefined,
+      matchLifestyle: Boolean(match),
     });
-    images = refs;
+    images = match ? [match, ...refs] : refs;
   }
 
   const raw = await generateImage({ prompt, images, aspectRatio: meta.aspect });

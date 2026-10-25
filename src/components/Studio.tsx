@@ -3,11 +3,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ASPECTS,
+  EXTRA_STYLES,
+  EXTRA_STYLE_HE,
+  INTERIOR_HE,
   INTERIOR_STYLES,
+  MAX_EXTRAS,
   MAX_SOURCES,
-  SLOTS,
-  SLOT_LABELS,
+  emptySlot,
+  projectSlots,
+  slotLabel,
   type Aspect,
+  type ExtraStyle,
   type ImageVersion,
   type InteriorStyle,
   type ProjectBundle,
@@ -23,23 +29,15 @@ import { buildZip } from "./zip";
 import { CheckIcon, ShotCard, type Busy } from "./ShotCard";
 import { FrameCorners } from "./Dropzone";
 
-const INTERIOR_HE: Record<InteriorStyle, string> = {
-  "Organic modern": "מודרני אורגני",
-  Japandi: "ג׳אפנדי",
-  "Scandinavian luxury": "סקנדינבי יוקרתי",
-  "Contemporary European": "אירופאי עכשווי",
-  "Warm minimalism": "מינימליזם חם",
-};
-
 const ASPECT_HE: Record<Aspect, string> = { "1:1": "ריבוע", "3:4": "לאורך", "4:3": "לרוחב" };
 
 type SlotMap<T> = Record<Slot, T>;
-const byslot = <T,>(v: T) => Object.fromEntries(SLOTS.map((s) => [s, v])) as SlotMap<T>;
 
-function normalizeState(state: StudioState, versions: SlotMap<ImageVersion[]>): StudioState {
+function normalizeState(state: StudioState, versions: SlotMap<ImageVersion[]>, slots: Slot[]): StudioState {
   const next = { ...state };
-  for (const s of SLOTS) {
-    const list = versions[s];
+  for (const s of slots) {
+    next[s] ??= emptySlot();
+    const list = versions[s] ?? [];
     if (list.length && !list.some((v) => v.id === next[s].currentId)) {
       next[s] = { currentId: list.at(-1)!.id, approved: false };
     }
@@ -55,9 +53,11 @@ export function Studio({ initial, shopifyReady }: { initial: ProjectBundle; shop
   const [meta, setMeta] = useState<ProjectMeta>(initial.meta);
   const [sources, setSources] = useState<SourceImage[]>(initial.sources);
   const [versions, setVersions] = useState<SlotMap<ImageVersion[]>>(initial.versions);
-  const [slotState, setSlotState] = useState<StudioState>(() => normalizeState(initial.state, initial.versions));
-  const [busy, setBusy] = useState<SlotMap<Busy>>(byslot<Busy>(null));
-  const [errors, setErrors] = useState<SlotMap<string | null>>(byslot<string | null>(null));
+  const [slotState, setSlotState] = useState<StudioState>(() =>
+    normalizeState(initial.state, initial.versions, projectSlots(initial.meta)),
+  );
+  const [busy, setBusy] = useState<SlotMap<Busy>>({});
+  const [errors, setErrors] = useState<SlotMap<string | null>>({});
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
   const [uploading, setUploading] = useState<string | null>(null);
@@ -133,17 +133,29 @@ export function Studio({ initial, shopifyReady }: { initial: ProjectBundle; shop
   }
 
   // ---- generation ----
+  const slots = projectSlots(meta);
+
   const run = useCallback(
-    async (slot: Slot, mode: "generate" | "regenerate" | "edit", instruction?: string) => {
+    async (
+      slot: Slot,
+      mode: "generate" | "regenerate" | "edit",
+      instruction?: string,
+      lifestyleOverride?: string,
+    ): Promise<ImageVersion | null> => {
       setBusy((b) => ({ ...b, [slot]: { mode, startedAt: Date.now() } }));
       setErrors((e) => ({ ...e, [slot]: null }));
       try {
-        const fromVersionId = mode === "edit" ? slotState[slot].currentId ?? undefined : undefined;
-        const { version } = await api.generate(id, { slot, mode, instruction, fromVersionId });
-        setVersions((v) => ({ ...v, [slot]: [...v[slot], version] }));
+        const fromVersionId = mode === "edit" ? slotState[slot]?.currentId ?? undefined : undefined;
+        // The angle shot is generated from the current lifestyle photo so both read as one photo session.
+        const lifestyleVersionId =
+          slot === "angle" && mode !== "edit" ? lifestyleOverride ?? slotState.lifestyle?.currentId ?? undefined : undefined;
+        const { version } = await api.generate(id, { slot, mode, instruction, fromVersionId, lifestyleVersionId });
+        setVersions((v) => ({ ...v, [slot]: [...(v[slot] ?? []), version] }));
         setSlotState((s) => ({ ...s, [slot]: { currentId: version.id, approved: false } }));
+        return version;
       } catch (e) {
         setErrors((er) => ({ ...er, [slot]: e instanceof Error ? e.message : "היצירה נכשלה" }));
+        return null;
       } finally {
         setBusy((b) => ({ ...b, [slot]: null }));
       }
@@ -151,16 +163,52 @@ export function Studio({ initial, shopifyReady }: { initial: ProjectBundle; shop
     [id, slotState],
   );
 
-  const missing = SLOTS.filter((s) => !versions[s].length && !busy[s]);
-  const anyBusy = SLOTS.some((s) => busy[s]);
-  const approved = SLOTS.flatMap((s) => {
-    const v = slotState[s].approved ? versions[s].find((x) => x.id === slotState[s].currentId) : undefined;
+  const missing = slots.filter((s) => !(versions[s]?.length) && !busy[s]);
+  const anyBusy = slots.some((s) => busy[s]);
+  const approved = slots.flatMap((s) => {
+    const st = slotState[s];
+    const v = st?.approved ? versions[s]?.find((x) => x.id === st.currentId) : undefined;
     return v ? [{ slot: s, version: v }] : [];
   });
-  const hasAnyImage = SLOTS.some((s) => versions[s].length);
+  const hasAnyImage = slots.some((s) => versions[s]?.length);
 
-  function generateMissing() {
-    missing.forEach((s) => run(s, "generate"));
+  async function generateMissing() {
+    const needAngle = missing.includes("angle");
+    const needLifestyle = missing.includes("lifestyle");
+    missing.filter((s) => s !== "angle" && s !== "lifestyle").forEach((s) => run(s, "generate"));
+    if (needLifestyle) {
+      // Show the angle card as waiting while the lifestyle photo it depends on is made.
+      if (needAngle) setBusy((b) => ({ ...b, angle: { mode: "generate", startedAt: Date.now() } }));
+      const lifestyle = await run("lifestyle", "generate");
+      if (needAngle) {
+        if (lifestyle) run("angle", "generate", undefined, lifestyle.id);
+        else setBusy((b) => ({ ...b, angle: null }));
+      }
+    } else if (needAngle) {
+      run("angle", "generate");
+    }
+  }
+
+  // ---- extra shots ----
+  async function addExtra(style: ExtraStyle, brief: string) {
+    try {
+      const { meta: next, extra } = await api.addExtra(id, { style, brief: brief || undefined });
+      setMeta(next);
+      setSlotState((s) => ({ ...s, [extra.slot]: emptySlot() }));
+      run(extra.slot, "generate");
+    } catch (e) {
+      setNotice({ kind: "error", text: e instanceof Error ? e.message : "ההוספה נכשלה" });
+    }
+  }
+
+  async function removeExtra(slot: Slot) {
+    if (versions[slot]?.length && !window.confirm("להסיר את התמונה הנוספת?")) return;
+    try {
+      const { meta: next } = await api.removeExtra(id, slot);
+      setMeta(next);
+    } catch (e) {
+      setNotice({ kind: "error", text: e instanceof Error ? e.message : "ההסרה נכשלה" });
+    }
   }
 
   // ---- meta edits ----
@@ -247,22 +295,24 @@ export function Studio({ initial, shopifyReady }: { initial: ProjectBundle; shop
             )}
 
             <label htmlFor="pname" className="text-sm text-ink-soft">
-              שם המוצר
+              שם המוצר (באנגלית)
             </label>
             <input
               id="pname"
+              dir="ltr"
               value={meta.name}
-              onChange={(e) => patchMeta({ name: e.target.value }, 600)}
-              className="mt-0.5 w-full border-b border-transparent bg-transparent font-display text-[2.75rem] leading-[1.1] outline-none hover:border-line focus:border-ink"
-              placeholder="שם המוצר"
+              onChange={(e) => patchMeta({ name: e.target.value.toUpperCase() }, 600)}
+              className="mt-0.5 w-full border-b border-transparent bg-transparent text-right font-display text-[2.75rem] leading-[1.1] tracking-[0.04em] outline-none hover:border-line focus:border-ink"
+              placeholder="NAME"
             />
             <div className="mt-3 flex flex-wrap gap-1.5" aria-label="הצעות לשם">
               {analysis.nameSuggestions.map((n) => (
                 <button
                   key={n}
                   type="button"
+                  dir="ltr"
                   onClick={() => patchMeta({ name: n })}
-                  className={`px-2.5 py-1 text-sm ${
+                  className={`px-2.5 py-1 text-sm tracking-wide ${
                     n === meta.name ? "bg-ink text-paper" : "bg-paper text-ink ring-1 ring-line hover:ring-ink"
                   }`}
                 >
@@ -270,6 +320,33 @@ export function Studio({ initial, shopifyReady }: { initial: ProjectBundle; shop
                 </button>
               ))}
             </div>
+
+            <label htmlFor="psub" className="mt-6 block text-sm text-ink-soft">
+              כותרת משנה
+            </label>
+            <input
+              id="psub"
+              value={meta.subtitle ?? ""}
+              onChange={(e) => patchMeta({ subtitle: e.target.value }, 600)}
+              className="mt-0.5 w-full border-b border-transparent bg-transparent text-xl text-ink-soft outline-none hover:border-line focus:border-ink focus:text-ink"
+              placeholder="לדוגמה: ספת תלת מושב מדהימה"
+            />
+            {(analysis.subtitleSuggestions?.length ?? 0) > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1.5" aria-label="הצעות לכותרת משנה">
+                {analysis.subtitleSuggestions.map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => patchMeta({ subtitle: n })}
+                    className={`px-2.5 py-1 text-sm ${
+                      n === meta.subtitle ? "bg-ink text-paper" : "bg-paper text-ink ring-1 ring-line hover:ring-ink"
+                    }`}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+            )}
 
             <dl className="mt-7 grid grid-cols-[88px_1fr] gap-x-3 gap-y-2 text-[15px]">
               <dt className="text-ink-soft">סוג</dt>
@@ -384,9 +461,8 @@ export function Studio({ initial, shopifyReady }: { initial: ProjectBundle; shop
                 <FrameCorners />
                 <h2 className="font-display text-3xl sm:text-4xl">המוצר מוכן לצילום</h2>
                 <p className="mt-3 max-w-[52ch] text-ink-soft">
-                  ניצור ארבע תמונות במקביל: גיבור בסטודיו, לייפסטייל בסגנון{" "}
-                  {INTERIOR_HE[meta.interiorOverride ?? analysis.interiorStyle]}, קלוז־אפ חומרים ורקע לבן.
-                  זה לוקח בערך דקה.
+                  ניצור ארבע תמונות: לייפסטייל בסגנון {INTERIOR_HE[meta.interiorOverride ?? analysis.interiorStyle]},
+                  אותו חלל מזווית נוספת, קלוז־אפ חומרים ורקע לבן. זה לוקח בערך שתי דקות.
                 </p>
                 <button
                   type="button"
@@ -398,15 +474,17 @@ export function Studio({ initial, shopifyReady }: { initial: ProjectBundle; shop
               </div>
             ) : (
               <div className="grid gap-5 md:grid-cols-2">
-                {SLOTS.map((slot) => (
+                {slots.map((slot) => (
                   <ShotCard
                     key={slot}
                     slot={slot}
+                    label={slotLabel(slot, meta.extras)}
+                    onRemove={slot.startsWith("extra") ? () => removeExtra(slot) : undefined}
                     aspect={meta.aspect}
-                    versions={versions[slot]}
-                    state={slotState[slot]}
-                    busy={busy[slot]}
-                    error={errors[slot]}
+                    versions={versions[slot] ?? []}
+                    state={slotState[slot] ?? emptySlot()}
+                    busy={busy[slot] ?? null}
+                    error={errors[slot] ?? null}
                     disabled={false}
                     onGenerate={() => run(slot, "generate")}
                     onRegenerate={() => run(slot, "regenerate")}
@@ -416,6 +494,9 @@ export function Studio({ initial, shopifyReady }: { initial: ProjectBundle; shop
                     onOpen={setLightbox}
                   />
                 ))}
+                {(meta.extras?.length ?? 0) < MAX_EXTRAS && (
+                  <AddExtra defaultStyle={meta.interiorOverride ?? analysis.interiorStyle} onAdd={addExtra} />
+                )}
               </div>
             )}
           </section>
@@ -427,7 +508,7 @@ export function Studio({ initial, shopifyReady }: { initial: ProjectBundle; shop
         <div className="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-paper/95 backdrop-blur">
           <div className="mx-auto flex max-w-[1440px] flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
             <p className="text-[15px]">
-              <span className="font-semibold tabular-nums">{approved.length}</span> מתוך 4 תמונות מאושרות
+              <span className="font-semibold tabular-nums">{approved.length}</span> מתוך {slots.length} תמונות מאושרות
               {missing.length > 0 && (
                 <button type="button" onClick={generateMissing} className="ms-3 text-mocha underline underline-offset-4">
                   צרו את {missing.length === 1 ? "התמונה החסרה" : `${missing.length} החסרות`}
@@ -480,6 +561,77 @@ export function Studio({ initial, shopifyReady }: { initial: ProjectBundle; shop
 
       <Lightbox version={lightbox} sources={sources} onClose={() => setLightbox(null)} />
     </>
+  );
+}
+
+// ---------- add extra shot ----------
+
+function AddExtra({ defaultStyle, onAdd }: { defaultStyle: ExtraStyle; onAdd: (s: ExtraStyle, brief: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [style, setStyle] = useState<ExtraStyle>(defaultStyle);
+  const [brief, setBrief] = useState("");
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="flex min-h-48 flex-col items-center justify-center gap-1 border border-dashed border-ink-soft/40 bg-paper/40 p-6 text-center hover:bg-paper"
+      >
+        <span className="font-display text-2xl">+ תמונה נוספת</span>
+        <span className="text-sm text-ink-soft">בסגנון אחר, או לפי מה שתכתבו</span>
+      </button>
+    );
+  }
+
+  return (
+    <form
+      className="flex flex-col gap-3 bg-paper p-5 ring-1 ring-line"
+      onSubmit={(e) => {
+        e.preventDefault();
+        onAdd(style, brief.trim());
+        setOpen(false);
+        setBrief("");
+      }}
+    >
+      <h3 className="font-display text-xl">תמונה נוספת</h3>
+      <div>
+        <label htmlFor="xstyle" className="text-sm text-ink-soft">
+          סגנון
+        </label>
+        <select
+          id="xstyle"
+          value={style}
+          onChange={(e) => setStyle(e.target.value as ExtraStyle)}
+          className="mt-1 block w-full border border-line bg-paper px-2 py-2 text-[15px]"
+        >
+          {EXTRA_STYLES.map((s) => (
+            <option key={s} value={s}>
+              {EXTRA_STYLE_HE(s)}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <label htmlFor="xbrief" className="text-sm text-ink-soft">
+          מה תרצו לראות? (לא חובה)
+        </label>
+        <textarea
+          id="xbrief"
+          rows={3}
+          value={brief}
+          onChange={(e) => setBrief(e.target.value)}
+          placeholder="לדוגמה: סלון עם קיר אבן ומבט לגינה, אור שקיעה חם"
+          className="mt-1 w-full resize-none border border-line bg-plaster/40 px-3 py-2 text-[15px] outline-none focus:border-ink"
+        />
+      </div>
+      <div className="flex gap-2">
+        <button className="bg-ink px-4 py-2 font-semibold text-paper hover:bg-mocha-deep">צרו תמונה</button>
+        <button type="button" onClick={() => setOpen(false)} className="px-3 py-2 text-ink-soft">
+          ביטול
+        </button>
+      </div>
+    </form>
   );
 }
 
@@ -623,7 +775,7 @@ function Lightbox({
     setCompare(null);
   }, [version]);
 
-  const label = useMemo(() => (version ? SLOT_LABELS[version.slot].he : ""), [version]);
+  const label = useMemo(() => (version ? slotLabel(version.slot).he : ""), [version]);
 
   return (
     <dialog

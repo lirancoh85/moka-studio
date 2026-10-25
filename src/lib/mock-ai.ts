@@ -20,7 +20,8 @@ export function mockAnalysis(): ProductAnalysis {
     roomEn: "living room",
     heroBackdropEn: "warm greige",
     catalogAngle: "three-quarter",
-    nameSuggestions: ["ספת אלבה", "ספת נועם", "ספת טרה", "ספת לונה", "ספת אורן"],
+    nameSuggestions: ["ALBA", "ROTEM", "NOA", "TAMAR", "LIOR"],
+    subtitleSuggestions: ["ספת תלת מושב מדהימה", "ספת בוקלה תלת מושבית", "ספה רכה עם רגלי אגוז"],
     descriptionHtmlHe:
       "<p>ספה רכה ומזמינה בריפוד בוקלה בגוון שמנת, עם קווים מעוגלים שמשרים רוגע על כל הסלון.</p><ul><li>ריפוד בוקלה</li><li>רגלי עץ אגוז קוניות</li><li>שלוש כריות מושב עמוקות</li></ul>",
     tagsHe: ["ספה", "בוקלה", "שמנת", "מודרני אורגני"],
@@ -34,7 +35,7 @@ export async function mockImage(source: Buffer, aspect: string, prompt: string):
   const W = 1024;
   const H = Math.round((W * ah) / aw);
   const white = prompt.includes("pure white");
-  const bg = white ? "#ffffff" : prompt.includes("Macro") ? "#cbbfae" : prompt.includes("lifestyle") ? "#b9b2a6" : "#d8cfc4";
+  const bg = white ? "#ffffff" : prompt.includes("Macro") ? "#cbbfae" : prompt.includes("SAME photo session") || prompt.includes("straight-on from the front") ? "#a9b4a0" : prompt.includes("lifestyle") ? "#b9b2a6" : "#d8cfc4";
   const fg = await sharp(source).resize({ width: Math.round(W * 0.7), height: Math.round(H * 0.7), fit: "inside" }).toBuffer();
   return sharp({ create: { width: W, height: H, channels: 3, background: bg } })
     .composite([{ input: fg, gravity: "center" }])

@@ -38,8 +38,18 @@ export const api = {
   analyze: (id: string) => call<{ meta: ProjectMeta }>(`/api/projects/${id}/analyze`, { method: "POST" }),
   generate: (
     id: string,
-    body: { slot: Slot; mode: "generate" | "regenerate" | "edit"; instruction?: string; fromVersionId?: string },
+    body: {
+      slot: Slot;
+      mode: "generate" | "regenerate" | "edit";
+      instruction?: string;
+      fromVersionId?: string;
+      lifestyleVersionId?: string;
+    },
   ) => call<{ version: ImageVersion }>(`/api/projects/${id}/generate`, json(body)),
+  addExtra: (id: string, body: { style: string; brief?: string }) =>
+    call<{ meta: ProjectMeta; extra: { slot: Slot } }>(`/api/projects/${id}/extras`, json(body)),
+  removeExtra: (id: string, slot: Slot) =>
+    call<{ meta: ProjectMeta }>(`/api/projects/${id}/extras?slot=${encodeURIComponent(slot)}`, { method: "DELETE" }),
   saveState: (id: string, state: StudioState) => call<{ ok: true }>(`/api/projects/${id}/state`, json(state, "PUT")),
   shopifyStatus: (id: string) => call<{ configured: boolean }>(`/api/projects/${id}/shopify`),
   pushShopify: (id: string) => call<{ shopify: ShopifyPush }>(`/api/projects/${id}/shopify`, { method: "POST" }),

@@ -1,4 +1,4 @@
-import type { InteriorStyle, ProductAnalysis, Slot } from "./types";
+import type { ExtraStyle, InteriorStyle, ProductAnalysis, Slot } from "./types";
 
 /**
  * Prompt library. Every image prompt is: fidelity lock + product spec + shot brief + exclusions.
@@ -15,12 +15,13 @@ Return JSON matching the schema. Rules:
 - mustKeepEn: 3-7 short items, the distinctive details that make this product recognizable.
 - closeupFocusEn: one specific area for a macro shot that is clearly visible and sharp in the references (e.g. "the boucle upholstery weave where the armrest meets the seat cushion"). Never choose a part that is not visible.
 - interiorStyle: pick the one that suits the product best.
-- heroBackdropEn: a warm neutral seamless studio backdrop tone that flatters the product colors (e.g. "warm greige", "soft sand", "pale stone grey", "muted clay beige"). Never white.
+- heroBackdropEn: a soft studio backdrop tone that flatters the product colors (e.g. "warm greige", "soft sand", "pale sage", "muted clay"). Never white.
 - catalogAngle: "front" for products read best head-on (cabinets, sideboards, beds), "three-quarter" for products with depth worth showing (sofas, armchairs, chairs, tables).
-- nameSuggestions: exactly 5 Hebrew product names. Format: furniture type + one evocative name, e.g. "ספת אלבה", "כורסת נועם", "שולחן אוכל טרה". The name word should be short (2-3 syllables), easy to pronounce, sophisticated, and fit the product's character (soft/organic, architectural, Mediterranean, Nordic…). Use Hebrew construct form correctly (ספה → ספת, כורסה → כורסת, מיטה → מיטת). No adjectives like "יוקרתית" or "מעוצבת". The first suggestion is your top recommendation.
+- nameSuggestions: exactly 5 product names in UPPERCASE Latin letters, used as the product title in the store (examples of the house style: ROTEM, ALBA, NOA, TAMAR, KEREN, LIOR, ELLA). One word, 3-7 letters, easy to pronounce in Hebrew and English, sophisticated and calm. Prefer Hebrew-origin words and names, or soft Mediterranean ones, whose meaning or sound fits the product's character (soft/rounded, architectural, natural wood, light…). No furniture-type words, no brand names, no existing famous furniture model names. The first is your top recommendation.
+- subtitleSuggestions: exactly 3 Hebrew subtitles shown under the name, saying what the product is, 2-5 words, in the house style "ספת תלת מושב מדהימה", "ספה דו מושבית בבד ארוג", "כורסת בוקלה מעוגלת". Start with the furniture type (seat count when it is a sofa), then one distinguishing feature or an elegant adjective. Use correct Hebrew construct forms (ספה → ספת, כורסה → כורסת, מיטה → מיטת).
 - descriptionHtmlHe: Hebrew product description for the Shopify page as simple HTML: one <p> of 2-3 sentences in a calm, confident premium tone, then a <ul> of 3-5 <li> items covering materials, construction and notable details. Do not invent dimensions, warranties, fabrics or features you cannot see.
 - tagsHe: 4-8 short Hebrew tags (type, material, color, style).
-- handle: a lowercase latin URL slug from the transliterated name word plus the furniture type in English, e.g. "alba-sofa".
+- handle: a lowercase latin URL slug of the first name suggestion plus the furniture type in English, e.g. "rotem-sofa".
 - isFurniture: false if the photos do not show a furniture product.
 - qualityWarnings: Hebrew, only real problems that will hurt results (blurry, very dark, product cropped, product heavily obstructed, references show different products). Empty array if fine.`;
 
@@ -46,6 +47,7 @@ export const ANALYSIS_SCHEMA = {
     heroBackdropEn: { type: "string" },
     catalogAngle: { type: "string", enum: ["front", "three-quarter"] },
     nameSuggestions: { type: "array", items: { type: "string" } },
+    subtitleSuggestions: { type: "array", items: { type: "string" } },
     descriptionHtmlHe: { type: "string" },
     tagsHe: { type: "array", items: { type: "string" } },
     handle: { type: "string" },
@@ -67,6 +69,7 @@ export const ANALYSIS_SCHEMA = {
     "heroBackdropEn",
     "catalogAngle",
     "nameSuggestions",
+    "subtitleSuggestions",
     "descriptionHtmlHe",
     "tagsHe",
     "handle",
@@ -88,6 +91,7 @@ export const ANALYSIS_SCHEMA = {
     "heroBackdropEn",
     "catalogAngle",
     "nameSuggestions",
+    "subtitleSuggestions",
     "descriptionHtmlHe",
     "tagsHe",
     "handle",
@@ -111,32 +115,46 @@ const UNIVERSAL_EXCLUSIONS = `Never include: text, letters, logos, watermarks, p
 
 const PHOTO_REALISM = `Must read as a real photograph taken with a full-frame camera: true-to-life material response, physically correct shadows and reflections, accurate perspective, no CGI gloss, no plastic textures, no oversaturation, no HDR halos.`;
 
-export function shotPrompt(
-  slot: Slot,
-  a: ProductAnalysis,
-  refCount: number,
-  opts: { interior?: InteriorStyle | null; variation?: number } = {},
-): string {
-  const parts: string[] = [fidelity(a, refCount)];
+export type ShotOptions = {
+  interior?: InteriorStyle | null;
+  variation?: number;
+  /** Extra shots: chosen style and optional free-text brief. */
+  extra?: { style: ExtraStyle; brief?: string };
+  /** Angle shot: whether the first attached image is the approved lifestyle photo to match. */
+  matchLifestyle?: boolean;
+};
 
-  if (slot === "hero") {
-    parts.push(`SHOT: Premium e-commerce hero photograph for a high-end European furniture brand.
-- Seamless studio sweep backdrop in ${a.heroBackdropEn}, smooth and evenly lit, no visible floor line.
-- Lighting: large soft key light from front-left at about 45°, gentle fill, subtle rim light separating the product from the background. Soft, realistic contact shadows anchoring the product to the floor.
-- Camera: slightly elevated three-quarter view, 70mm lens, everything in sharp focus.
-- Composition: the product is the only subject, centered, fully visible with generous breathing room on every side, filling about 70% of the frame width. Minimalist and calm.
-- No props or decor.`);
-  }
+const AVOID_INTERIOR = `Avoid: generic AI interiors, perfect symmetry, glossy reflective floors, excessive plants, clutter, oversized artwork, neon or colored lighting, anything that competes with the product.`;
+
+function lifestyleScene(a: ProductAnalysis, style: string) {
+  return `- Natural daylight from a large window, soft and directional; no artificial dramatic light, no sun rays.
+- Architecture: real residential details (plastered walls, wide-plank or microcement floor, simple skirting, a doorway or window frame) at correct scale — a standard door is about 210cm tall.
+- The product sits naturally in the room, correctly scaled, grounded with real shadows, fully visible, and clearly the hero of the image.
+- Styling: restrained and sophisticated — 3 to 5 carefully chosen accessories that suit ${style} (for example a linen throw, a stoneware vase with a dried branch, a low round coffee table, a few books, a textured wool rug). A palette that complements the product's colors.
+- ${AVOID_INTERIOR}`;
+}
+
+export function shotPrompt(slot: Slot, a: ProductAnalysis, refCount: number, opts: ShotOptions = {}): string {
+  const parts: string[] = [fidelity(a, refCount)];
+  const style = opts.interior ?? a.interiorStyle;
 
   if (slot === "lifestyle") {
-    const style = opts.interior ?? a.interiorStyle;
-    parts.push(`SHOT: Editorial lifestyle photograph of the product in a beautifully designed ${a.roomEn}, ${style} interior.
-- Camera angle must differ from a studio three-quarter view: eye-level, either straight-on frontal or from the opposite side, 35mm lens, as an interior photographer would shoot it.
-- Natural daylight from a large window, soft and directional; no artificial dramatic light, no sun rays.
-- Architecture: real residential details (plastered walls, wide-plank or microcement floor, simple skirting, a doorway or window frame) at correct scale — a standard door is about 210cm tall.
-- The product sits naturally in the room, correctly scaled, grounded with real shadows, and clearly remains the hero of the image.
-- Styling: restrained and sophisticated — at most 3 to 5 carefully chosen accessories that suit ${style} (for example a linen throw, a stoneware vase with a dried branch, a low side table, a few books, a wool rug). A palette that complements the product's colors.
-- Avoid: generic AI interiors, perfect symmetry, glossy reflective floors, excessive plants, clutter, oversized artwork, neon or colored lighting, anything that competes with the product.`);
+    parts.push(`SHOT: The main product photograph for a premium furniture store — the product in a beautifully designed ${a.roomEn}, ${style} interior, shot like an editorial interior campaign.
+- Camera: classic three-quarter view from slightly above seat height, 35–50mm lens, the whole product in frame with room around it. The product occupies roughly 55–65% of the frame width.
+${lifestyleScene(a, style)}`);
+  }
+
+  if (slot === "angle") {
+    parts.push(
+      opts.matchLifestyle
+        ? `SHOT: A second photograph from the SAME photo session as the FIRST attached image (the approved lifestyle photo). The remaining images are the original product references.
+- Same room, same architecture, same light and time of day, same accessories and color palette — as if the photographer simply moved the camera.
+- Camera: a clearly DIFFERENT angle from the first image — if the first is a three-quarter view, shoot straight-on from the front at seat height, or from the opposite side; 35–50mm lens. The whole product stays in frame.
+- The product must be identical to the references and to the product in the first image.
+- ${AVOID_INTERIOR}`
+        : `SHOT: Editorial lifestyle photograph of the product in a beautifully designed ${a.roomEn}, ${style} interior, seen straight-on from the front at seat height (a different angle from a standard three-quarter view), 35–50mm lens, whole product in frame.
+${lifestyleScene(a, style)}`,
+    );
   }
 
   if (slot === "closeup") {
@@ -160,13 +178,29 @@ export function shotPrompt(
 - No accessories, props, cushions or decor that are not part of the product itself.`);
   }
 
+  if (opts.extra) {
+    const brief = opts.extra.brief?.trim();
+    if (opts.extra.style === "studio") {
+      parts.push(`SHOT: Premium studio product photograph for a high-end furniture brand.
+- Seamless studio set in ${a.heroBackdropEn}, smooth and evenly lit, with soft realistic contact shadows. Not white.
+- Large soft key light, gentle fill. Camera at a flattering angle, whole product in frame, minimalist and calm.`);
+    } else {
+      parts.push(`SHOT: Editorial lifestyle photograph of the product in a beautifully designed ${a.roomEn}, ${opts.extra.style} interior. Choose a camera angle and composition that feel fresh, the whole product in frame.
+${lifestyleScene(a, opts.extra.style)}`);
+    }
+    if (brief) {
+      parts.push(`SPECIFIC REQUEST from the brand (may be written in Hebrew) — follow it as long as it does not change the product itself:
+"""${brief}"""`);
+    }
+  }
+
   parts.push(PHOTO_REALISM, UNIVERSAL_EXCLUSIONS);
 
   if (opts.variation && opts.variation > 1) {
     parts.push(
-      slot === "lifestyle"
-        ? `This is alternative take #${opts.variation}: design a different room arrangement and accessories than a previous take, keeping the same style direction and the exact same product.`
-        : `This is alternative take #${opts.variation}: vary the composition subtly while keeping every requirement above and the exact same product.`,
+      slot === "closeup" || slot === "white"
+        ? `This is alternative take #${opts.variation}: vary the composition subtly while keeping every requirement above and the exact same product.`
+        : `This is alternative take #${opts.variation}: design a different arrangement, accessories and composition than a previous take, keeping the same style direction and the exact same product.`,
     );
   }
 
@@ -174,7 +208,7 @@ export function shotPrompt(
 }
 
 export function editPrompt(slot: Slot, a: ProductAnalysis, refCount: number, instruction: string): string {
-  return `The FIRST attached image is a ${slot === "white" ? "white-background catalog" : slot} photograph of a furniture product. The remaining ${refCount} image(s) are the original reference photographs of that product.
+  return `The FIRST attached image is a product photograph of a furniture product${slot === "white" ? " on a white background" : ""}. The remaining ${refCount} image(s) are the original reference photographs of that product.
 
 TASK: Edit the first image according to this instruction (it may be written in Hebrew):
 """${instruction.trim()}"""

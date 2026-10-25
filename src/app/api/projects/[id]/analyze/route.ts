@@ -17,6 +17,7 @@ export const POST = route<{ id: string }>(async (_req, { id }) => {
     analysis,
     sourceKeys: sources.map((s) => s.key),
     name: meta.name || analysis.nameSuggestions[0] || "",
+    subtitle: meta.subtitle || analysis.subtitleSuggestions[0] || analysis.furnitureTypeHe,
   };
   await saveMeta(next);
   return { meta: next };
