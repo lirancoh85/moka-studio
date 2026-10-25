@@ -29,8 +29,9 @@ function blobToken(): string | undefined {
   return undefined;
 }
 
+/** Blob is available with a read-write token, or via Vercel OIDC when the store is connected (BLOB_STORE_ID). */
 export function useBlob() {
-  return Boolean(blobToken());
+  return Boolean(blobToken() || process.env.BLOB_STORE_ID);
 }
 
 type Access = "private" | "public";
@@ -45,7 +46,7 @@ function assertStorageConfigured() {
   if (!useBlob() && process.env.VERCEL === "1") {
     throw new HttpError(
       500,
-      "האחסון לא מחובר: לא נמצא טוקן של Vercel Blob. ב־Vercel: Storage → בחרו את ה־Blob → Connect Project → moka-studio, ואז Redeploy.",
+      "האחסון לא מחובר: האחסון לא מחובר (לא נמצא BLOB_STORE_ID או טוקן). ב־Vercel: Storage → בחרו את ה־Blob → Connect Project → moka-studio, ואז Redeploy.",
     );
   }
 }
