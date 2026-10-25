@@ -1,0 +1,63 @@
+@import "tailwindcss";
+
+@theme {
+  --color-plaster: #e8e6e1;
+  --color-paper: #f5f4f1;
+  --color-ink: #241d18;
+  --color-ink-soft: #5c544d;
+  --color-mocha: #6e4e3a;
+  --color-mocha-deep: #4e3627;
+  --color-moss: #4f6845;
+  --color-line: #cfcac2;
+  --color-error: #9c3b2e;
+
+  --font-display: "Frank Ruhl Libre", "Times New Roman", serif;
+  --font-sans: "Assistant", system-ui, sans-serif;
+}
+
+html {
+  background: var(--color-plaster);
+  color: var(--color-ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.55;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-mocha);
+  outline-offset: 2px;
+}
+
+/* Checkerboard behind images while they load — reads as "photo pending", not "empty card". */
+.photo-well {
+  background-color: #dedbd5;
+  background-image:
+    linear-gradient(45deg, #d6d2cb 25%, transparent 25%),
+    linear-gradient(-45deg, #d6d2cb 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #d6d2cb 75%),
+    linear-gradient(-45deg, transparent 75%, #d6d2cb 75%);
+  background-size: 18px 18px;
+  background-position: 0 0, 0 9px, 9px -9px, -9px 0;
+}
+
+/* Developing-film shimmer used only while a photo is being generated. */
+@keyframes develop {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.developing {
+  background: linear-gradient(100deg, #d9d5ce 20%, #e9e6e0 40%, #d9d5ce 60%);
+  background-size: 200% 100%;
+  animation: develop 2.4s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .developing { animation: none; }
+  * { transition-duration: 0ms !important; }
+}
+
+dialog::backdrop { background: rgb(20 16 13 / 0.86); }
