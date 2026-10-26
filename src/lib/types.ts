@@ -15,7 +15,7 @@ export const BASE_LABELS: Record<BaseSlot, { he: string; hint: string; file: str
   lifestyle: { he: "לייפסטייל", hint: "המוצר בחלל מגורים מעוצב", file: "lifestyle" },
   angle: { he: "לייפסטייל, זווית נוספת", hint: "אותו חלל, מצלמה מזווית אחרת", file: "lifestyle-angle" },
   closeup: { he: "קלוז־אפ חומרים", hint: "מאקרו על בד, תפרים ועץ", file: "detail" },
-  white: { he: "רקע לבן", hint: "קטלוג, ‎#FFFFFF, צל עדין", file: "white" },
+  white: { he: "רקע האתר", hint: "קטלוג על צבע הרקע של האתר, צל עדין", file: "catalog" },
 };
 
 export const INTERIOR_STYLES = [
@@ -220,3 +220,6 @@ export function emptySlot(): SlotState {
 }
 
 export const MAX_SOURCES = 5;
+
+/** Catalog-shot background: the MOKA site background, so the photo blends into the page. */
+export const DEFAULT_CATALOG_BG = "#F8F7F5";

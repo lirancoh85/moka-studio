@@ -79,7 +79,7 @@ Without `BLOB_READ_WRITE_TOKEN`, files are stored in `./.data`.
 
 **Product fidelity.** Every generation call sends all reference photos plus a product "lock": a precise English spec and a list of must-keep details written by the analysis step. The prompt forbids redesigning, recoloring or adding parts, and tells the model to ignore the showroom. The close-up prompt only allows textures visible in the references.
 
-**White background.** After generation, a flood fill from the image border turns near-white background pixels to exact `#FFFFFF`, while leaving the product and its grounding shadow untouched.
+**Catalog background.** The catalog shot is generated on the site background color (`#F8F7F5`, set with `CATALOG_BG`). After generation the real background tone is measured from the image border and a flood fill from the edges snaps it to the exact hex, leaving the product and its grounding shadow untouched — so the photo blends into the page with no visible box.
 
 **Images.** All outputs are 2048px on the long edge (Shopify's recommended size), JPEG q92 with full chroma. Aspect ratio is per product: square (default), portrait 3:4 or landscape 4:3.
 

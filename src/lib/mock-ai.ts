@@ -48,8 +48,8 @@ export async function mockImage(source: Buffer, aspect: string, prompt: string):
   const [aw, ah] = aspect.split(":").map(Number);
   const W = 1024;
   const H = Math.round((W * ah) / aw);
-  const white = prompt.includes("pure white");
-  const bg = white ? "#ffffff" : prompt.includes("Macro") ? "#cbbfae" : prompt.includes("SAME photo session") || prompt.includes("straight-on from the front") ? "#a9b4a0" : prompt.includes("lifestyle") ? "#b9b2a6" : "#d8cfc4";
+  const white = prompt.includes("catalog photograph on a seamless");
+  const bg = white ? "#f2efe9" : prompt.includes("Macro") ? "#cbbfae" : prompt.includes("SAME photo session") || prompt.includes("straight-on from the front") ? "#a9b4a0" : prompt.includes("lifestyle") ? "#b9b2a6" : "#d8cfc4";
   const fg = await sharp(source).resize({ width: Math.round(W * 0.7), height: Math.round(H * 0.7), fit: "inside" }).toBuffer();
   return sharp({ create: { width: W, height: H, channels: 3, background: bg } })
     .composite([{ input: fg, gravity: "center" }])

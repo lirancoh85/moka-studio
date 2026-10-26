@@ -1,4 +1,4 @@
-import { NAME_CATEGORIES, type ExtraStyle, type InteriorStyle, type NameCategory, type ProductAnalysis, type Slot } from "./types";
+import { DEFAULT_CATALOG_BG, NAME_CATEGORIES, type ExtraStyle, type InteriorStyle, type NameCategory, type ProductAnalysis, type Slot } from "./types";
 
 /**
  * Prompt library. Every image prompt is: fidelity lock + product spec + shot brief + exclusions.
@@ -216,8 +216,9 @@ ${lifestyleScene(a, style)}`,
   if (slot === "white") {
     const angle =
       a.catalogAngle === "front" ? "a straight-on front view at product mid-height" : "a classic three-quarter view from slightly above";
-    parts.push(`SHOT: Clean professional catalog photograph on a pure white background.
-- Background: pure white #FFFFFF everywhere, completely uniform — no gradient, no vignette, no horizon or floor line, no texture.
+    const bg = catalogBg();
+    parts.push(`SHOT: Clean professional catalog photograph on a seamless warm off-white background.
+- Background: exactly ${bg.hex} (RGB ${bg.rgb.join(", ")}) everywhere, completely uniform and flat — no gradient, no vignette, no horizon or floor line, no texture, not pure white, not grey.
 - Camera: ${angle}, 85mm lens, no perspective distortion, everything in sharp focus.
 - Lighting: soft, even, color-accurate studio lighting with no color cast.
 - A soft, natural grounding shadow directly beneath the product so it does not float. No reflection.
@@ -255,7 +256,7 @@ ${lifestyleScene(a, opts.extra.style)}`);
 }
 
 export function editPrompt(slot: Slot, a: ProductAnalysis, refCount: number, instruction: string): string {
-  return `The FIRST attached image is a product photograph of a furniture product${slot === "white" ? " on a white background" : ""}. The remaining ${refCount} image(s) are the original reference photographs of that product.
+  return `The FIRST attached image is a product photograph of a furniture product${slot === "white" ? " on a plain catalog background" : ""}. The remaining ${refCount} image(s) are the original reference photographs of that product.
 
 TASK: Edit the first image according to this instruction (it may be written in Hebrew):
 """${instruction.trim()}"""
@@ -264,7 +265,7 @@ Rules:
 - Change only what the instruction asks for. Keep composition, framing, lighting and everything else identical unless the instruction says otherwise.
 - The product must still match the reference photographs exactly: ${a.productSpecEn}
 - Preserve: ${a.mustKeepEn.join("; ")}.
-${slot === "white" ? "- The background must remain pure white #FFFFFF.\n" : ""}- ${PHOTO_REALISM}
+${slot === "white" ? `- The background must remain a flat, uniform ${catalogBg().hex}.\n` : ""}- ${PHOTO_REALISM}
 - ${UNIVERSAL_EXCLUSIONS}
 
 Output the edited photograph.`;
@@ -325,3 +326,11 @@ export const QC_SCHEMA = (() => {
     required: ["productVisible", "checks", "issuesHe", "score"],
   };
 })();
+
+/** Catalog background color (CATALOG_BG env, default the site background #F8F7F5). */
+export function catalogBg(): { hex: string; rgb: [number, number, number] } {
+  const raw = (process.env.CATALOG_BG || DEFAULT_CATALOG_BG).trim();
+  const m = /^#?([0-9a-f]{6})$/i.exec(raw) ?? /^#?([0-9a-f]{6})$/i.exec(DEFAULT_CATALOG_BG)!;
+  const n = parseInt(m[1], 16);
+  return { hex: `#${m[1].toUpperCase()}`, rgb: [(n >> 16) & 255, (n >> 8) & 255, n & 255] };
+}
