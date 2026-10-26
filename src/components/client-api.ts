@@ -1,5 +1,5 @@
 "use client";
-import type { ImageVersion, ProjectMeta, ShopifyPush, Slot, SourceImage, StudioState } from "@/lib/types";
+import type { ImageVersion, ProjectMeta, QcResult, ShopifyPush, Slot, SourceImage, StudioState } from "@/lib/types";
 
 async function call<T>(url: string, init?: RequestInit): Promise<T> {
   let res: Response;
@@ -50,8 +50,10 @@ export const api = {
     call<{ meta: ProjectMeta; extra: { slot: Slot } }>(`/api/projects/${id}/extras`, json(body)),
   removeExtra: (id: string, slot: Slot) =>
     call<{ meta: ProjectMeta }>(`/api/projects/${id}/extras?slot=${encodeURIComponent(slot)}`, { method: "DELETE" }),
+  qc: (id: string, slot: Slot, versionId: string) =>
+    call<{ qc: QcResult }>(`/api/projects/${id}/qc`, json({ slot, versionId })),
   moreNames: (id: string, category: string) =>
-    call<{ meta: ProjectMeta; added: string[] }>(`/api/projects/${id}/names`, json({ category })),
+    call<{ meta: ProjectMeta; added: string[]; usedNames: string[] }>(`/api/projects/${id}/names`, json({ category })),
   saveState: (id: string, state: StudioState) => call<{ ok: true }>(`/api/projects/${id}/state`, json(state, "PUT")),
   shopifyStatus: (id: string) => call<{ configured: boolean }>(`/api/projects/${id}/shopify`),
   pushShopify: (id: string) => call<{ shopify: ShopifyPush; warnings?: string[] }>(`/api/projects/${id}/shopify`, { method: "POST" }),

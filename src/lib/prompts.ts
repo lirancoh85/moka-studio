@@ -18,6 +18,7 @@ export const NAME_RULES = `Every name: one word in UPPERCASE Latin letters, 3–
 - ${NAME_CATEGORIES.map((c) => NAME_CATEGORY_GUIDE[c]).join("\n- ")}`;
 
 export function moreNamesPrompt(a: ProductAnalysis, category: NameCategory, exclude: string[]) {
+  // exclude = names already shown here + names already used by other products
   return `You name products for MOKA, a premium Israeli furniture brand. The store shows a short English name as the product title (e.g. ROTEM) with a Hebrew subtitle under it.
 
 Product: ${a.furnitureTypeEn}. ${a.productSpecEn}
@@ -26,10 +27,11 @@ Suggest 6 NEW names in this category only:
 ${NAME_CATEGORY_GUIDE[category]}
 
 ${NAME_RULES.split("Categories:")[0].trim()}
-Do not repeat any of these: ${exclude.join(", ") || "(none)"}.`;
+Do not suggest any of these (already shown or already used by another product): ${exclude.join(", ") || "(none)"}.`;
 }
 
-export const ANALYSIS_PROMPT = `You are the senior merchandiser and product photographer for MOKA, a premium Israeli furniture brand (comparable to high-end European furniture houses).
+export function analysisPrompt(collections: string[], usedNames: string[]) {
+  return `You are the senior merchandiser and product photographer for MOKA, a premium Israeli furniture brand (comparable to high-end European furniture houses).
 
 The attached photographs were taken in a showroom and show ONE furniture product, possibly from several angles. Analyze only that product. Ignore the room, floor, price tags, signage, people and any other furniture.
 
@@ -47,9 +49,16 @@ Return JSON matching the schema. Rules:
 - tagsHe: 4-8 short Hebrew tags (type, material, color, style).
 - handle: a lowercase latin URL slug of the first Israeli name plus the furniture type in English, e.g. "rotem-sofa".
 - isFurniture: false if the photos do not show a furniture product.
-- qualityWarnings: Hebrew, only real problems that will hurt results (blurry, very dark, product cropped, product heavily obstructed, references show different products). Empty array if fine.`;
+- qualityWarnings: Hebrew, only real problems that will hurt results (blurry, very dark, product cropped, product heavily obstructed, references show different products). Empty array if fine.
+- collectionScores: the store sorts products into these collections: ${collections.map((c) => `"${c}"`).join(", ")}. Return EVERY collection exactly as written with a confidence from 0 to 100 that this product belongs in it, based only on what the photos show. The confidences should add up to about 100. Be honest: if the product could fit two collections (e.g. a bench, a loveseat vs. armchair, a console vs. sideboard) or the photos are unclear, spread the confidence instead of guessing.
+${usedNames.length ? `- These product names are already taken in the store and must NOT be suggested: ${usedNames.join(", ")}.` : ""}`;
+}
 
-export const ANALYSIS_SCHEMA = {
+export function analysisSchema() {
+  return ANALYSIS_SCHEMA_BASE;
+}
+
+const ANALYSIS_SCHEMA_BASE = {
   type: "object",
   properties: {
     isFurniture: { type: "boolean" },
@@ -76,6 +85,14 @@ export const ANALYSIS_SCHEMA = {
       required: [...NAME_CATEGORIES],
     },
     subtitleSuggestions: { type: "array", items: { type: "string" } },
+    collectionScores: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { title: { type: "string" }, confidence: { type: "number" } },
+        required: ["title", "confidence"],
+      },
+    },
     descriptionHtmlHe: { type: "string" },
     tagsHe: { type: "array", items: { type: "string" } },
     handle: { type: "string" },
@@ -98,6 +115,7 @@ export const ANALYSIS_SCHEMA = {
     "catalogAngle",
     "nameCategories",
     "subtitleSuggestions",
+    "collectionScores",
     "descriptionHtmlHe",
     "tagsHe",
     "handle",
@@ -120,6 +138,7 @@ export const ANALYSIS_SCHEMA = {
     "catalogAngle",
     "nameCategories",
     "subtitleSuggestions",
+    "collectionScores",
     "descriptionHtmlHe",
     "tagsHe",
     "handle",
@@ -256,3 +275,53 @@ export const NAMES_SCHEMA = {
   properties: { names: { type: "array", items: { type: "string" } } },
   required: ["names"],
 } as const;
+
+// ---------- quality control ----------
+
+export function qcPrompt(slot: Slot, a: ProductAnalysis, refCount: number): string {
+  const macro = slot === "closeup";
+  return `You are the quality inspector for MOKA's product photography. A generated photo must show the EXACT same product as the real showroom photos — customers will receive the real item.
+
+The first ${refCount} image(s) are REAL showroom photos of the product (${a.furnitureTypeEn}). The LAST image is the GENERATED photo to inspect.
+
+Reference specification: ${a.productSpecEn}
+Must be preserved: ${a.mustKeepEn.join("; ")}.
+
+Compare ONLY the product. Ignore background, room, props, lighting mood, camera angle and image quality — those are allowed to differ. Different camera angles are expected: judge whether the product would look like this from that angle.
+${macro ? "This is a MACRO close-up of a detail: judge only color, material/texture and the visible construction details. Mark silhouette, proportions and partsAddedOrMissing as ok with note \"לא רלוונטי בקלוז־אפ\" unless the detail clearly shows a part that does not exist on the real product." : ""}
+
+For each check, ok=false only for a real, visible change a customer would notice:
+- silhouette: overall shape and outline (e.g. arms straight vs rounded, back height, curved vs boxy).
+- proportions: relative width/depth/height, seat depth, arm thickness, leg height.
+- details: arms, back, cushions count and layout, seams/piping/tufting, legs shape and finish, hardware.
+- partsAddedOrMissing: any part added (extra cushion, chaise, headrest, tufting, trim) or removed.
+- color: hue/shade of each part, allowing for lighting.
+- material: fabric/leather/wood/metal type and texture.
+noteHe: a short Hebrew note saying exactly what differs, or "תואם" when ok.
+issuesHe: short Hebrew list of the real differences, most important first (empty if none).
+score: 0–100 — how faithfully the product is reproduced (100 = indistinguishable from the real product, 85+ = only negligible differences, 65–84 = noticeable differences, below 65 = a different design).
+productVisible: false if the generated image does not clearly show the product.`;
+}
+
+export const QC_SCHEMA = (() => {
+  const check = {
+    type: "object",
+    properties: { ok: { type: "boolean" }, noteHe: { type: "string" } },
+    required: ["ok", "noteHe"],
+  };
+  const keys = ["silhouette", "proportions", "details", "partsAddedOrMissing", "color", "material"];
+  return {
+    type: "object",
+    properties: {
+      productVisible: { type: "boolean" },
+      checks: {
+        type: "object",
+        properties: Object.fromEntries(keys.map((k) => [k, check])),
+        required: keys,
+      },
+      issuesHe: { type: "array", items: { type: "string" } },
+      score: { type: "number" },
+    },
+    required: ["productVisible", "checks", "issuesHe", "score"],
+  };
+})();

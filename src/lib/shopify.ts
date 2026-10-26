@@ -52,6 +52,49 @@ export async function subtitleField(): Promise<MetafieldTarget | null> {
   return value;
 }
 
+// ---------- collections & existing names ----------
+
+type Collection = { id: string; title: string; smart: boolean };
+let collectionsCache: { at: number; value: Collection[] } | null = null;
+let titlesCache: { at: number; value: string[] } | null = null;
+
+/** The store's collections (manual ones can receive products; smart ones fill themselves by rules). */
+export async function listCollections(): Promise<Collection[]> {
+  if (collectionsCache && Date.now() - collectionsCache.at < 5 * 60_000) return collectionsCache.value;
+  const data = await gql<{
+    collections: { nodes: { id: string; title: string; ruleSet: { appliedDisjunctively: boolean } | null }[] };
+  }>(`query cols { collections(first: 250, sortKey: TITLE) { nodes { id title ruleSet { appliedDisjunctively } } } }`, {});
+  const value = data.collections.nodes.map((c) => ({ id: c.id, title: c.title.trim(), smart: Boolean(c.ruleSet) }));
+  collectionsCache = { at: Date.now(), value };
+  return value;
+}
+
+/** Titles of products already in the store, uppercased (whole title and first word). */
+export async function existingProductNames(): Promise<string[]> {
+  if (titlesCache && Date.now() - titlesCache.at < 5 * 60_000) return titlesCache.value;
+  const out = new Set<string>();
+  let after: string | null = null;
+  for (let page = 0; page < 10; page++) {
+    const data: {
+      products: { nodes: { title: string }[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } };
+    } = await gql(
+      `query titles($after: String) { products(first: 250, after: $after) { nodes { title } pageInfo { hasNextPage endCursor } } }`,
+      { after },
+    );
+    for (const p of data.products.nodes) {
+      const t = p.title.trim().toUpperCase();
+      if (t) out.add(t);
+      const first = t.split(/\s+/)[0];
+      if (first && /^[A-Z]+$/.test(first)) out.add(first);
+    }
+    if (!data.products.pageInfo.hasNextPage) break;
+    after = data.products.pageInfo.endCursor;
+  }
+  const value = [...out];
+  titlesCache = { at: Date.now(), value };
+  return value;
+}
+
 /** Encode a plain string for the metafield's type. */
 function metafieldValue(type: string, text: string): string | null {
   if (type === "single_line_text_field" || type === "multi_line_text_field") return text;
@@ -160,6 +203,7 @@ export async function createDraftProduct(input: {
   tags: string[];
   handle: string;
   subtitle?: string;
+  collection?: string | null;
   images: { filename: string; body: Buffer; alt: string }[];
 }) {
   const warnings: string[] = [];
@@ -230,6 +274,24 @@ export async function createDraftProduct(input: {
   }
   assertNoUserErrors(data.productCreate.userErrors, "יצירת מוצר");
   const product = data.productCreate.product!;
+  if (input.collection) {
+    const target = (await listCollections().catch(() => [] as Collection[])).find(
+      (c) => c.title === input.collection!.trim(),
+    );
+    if (!target) {
+      warnings.push(`המוצר לא שויך לקולקציה: "${input.collection}" לא נמצאה ב־Shopify.`);
+    } else if (target.smart) {
+      warnings.push(`"${target.title}" היא קולקציה אוטומטית — Shopify ישייך אליה את המוצר לפי הכללים שלה.`);
+    } else {
+      const res = await gql<{ collectionAddProducts: { userErrors: UserError[] } }>(
+        `mutation join($id: ID!, $productIds: [ID!]!) { collectionAddProducts(id: $id, productIds: $productIds) { userErrors { field message } } }`,
+        { id: target.id, productIds: [product.id] },
+      ).catch((e) => ({ collectionAddProducts: { userErrors: [{ message: String((e as Error).message) }] } }));
+      const errs = res.collectionAddProducts.userErrors;
+      if (errs.length) warnings.push(`המוצר לא שויך לקולקציה: ${errs.map((e) => e.message).join("; ")}`);
+    }
+  }
+
   const numericId = product.id.split("/").pop();
   const shop = domain().replace(".myshopify.com", "");
   return {

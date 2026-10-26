@@ -1,6 +1,6 @@
 import "server-only";
 import OpenAI, { toFile } from "openai";
-import { ANALYSIS_PROMPT, ANALYSIS_SCHEMA } from "./prompts";
+import { analysisSchema } from "./prompts";
 import { finalizeAnalysis } from "./gemini";
 import { HttpError } from "./project";
 import type { ProductAnalysis } from "./types";
@@ -82,7 +82,13 @@ function translate(err: unknown): Error {
   return new HttpError(502, `OpenAI החזיר שגיאה: ${msg.slice(0, 200)}`);
 }
 
-export async function openaiAnalyze(images: Buffer[]): Promise<ProductAnalysis> {
+/** Vision call returning JSON: images first, then the instruction. */
+export async function openaiVisionJson(
+  images: Buffer[],
+  prompt: string,
+  schema: Record<string, unknown>,
+  name = "result",
+): Promise<string> {
   const res = await withRetry(() =>
     ai().responses.create({
       model: openaiTextModel(),
@@ -95,22 +101,20 @@ export async function openaiAnalyze(images: Buffer[]): Promise<ProductAnalysis> 
               image_url: `data:image/jpeg;base64,${b.toString("base64")}`,
               detail: "high" as const,
             })),
-            { type: "input_text" as const, text: ANALYSIS_PROMPT },
+            { type: "input_text" as const, text: prompt },
           ],
         },
       ],
-      text: {
-        format: {
-          type: "json_schema",
-          name: "product_analysis",
-          strict: true,
-          schema: strictSchema(ANALYSIS_SCHEMA) as Record<string, unknown>,
-        },
-      },
+      text: { format: { type: "json_schema", name, strict: true, schema: strictSchema(schema) as Record<string, unknown> } },
     }),
   );
-  if (!res.output_text) throw new HttpError(502, "הניתוח לא החזיר תוצאה. נסו שוב.");
-  return finalizeAnalysis(res.output_text);
+  if (!res.output_text) throw new HttpError(502, "לא התקבלה תשובה מהמודל. נסו שוב.");
+  return res.output_text;
+}
+
+export async function openaiAnalyze(images: Buffer[], prompt: string): Promise<ProductAnalysis> {
+  const text = await openaiVisionJson(images, prompt, analysisSchema() as unknown as Record<string, unknown>, "product_analysis");
+  return finalizeAnalysis(text);
 }
 
 /** Small JSON-returning text call (no images). */

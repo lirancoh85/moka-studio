@@ -11,6 +11,7 @@ export const GET = route<{ id: string }>(async (_req, { id }) => loadBundle(id))
 const Patch = z.object({
   name: z.string().trim().max(60).optional(),
   subtitle: z.string().trim().max(120).optional(),
+  collection: z.string().trim().max(120).nullable().optional(),
   aspect: z.enum(ASPECTS).optional(),
   interiorOverride: z.enum(INTERIOR_STYLES).nullable().optional(),
   sourceKeys: z.array(z.string()).max(MAX_SOURCES).optional(),
@@ -29,6 +30,7 @@ export const PATCH = route<{ id: string }>(async (req, { id }) => {
   const next = {
     ...meta,
     ...rest,
+    ...(rest.collection !== undefined ? { collectionAuto: false } : {}),
     ...(sourceKeys ? { sourceKeys } : {}),
     analysis:
       meta.analysis && descriptionHtmlHe !== undefined

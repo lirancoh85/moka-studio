@@ -1,7 +1,7 @@
 import "server-only";
 import { GoogleGenAI, type Part } from "@google/genai";
 import { z } from "zod";
-import { ANALYSIS_PROMPT, ANALYSIS_SCHEMA } from "./prompts";
+import { analysisSchema } from "./prompts";
 import { INTERIOR_STYLES, NAME_CATEGORIES, type NameCategory, type ProductAnalysis } from "./types";
 import { HttpError } from "./project";
 
@@ -81,25 +81,32 @@ export const AnalysisZ = z.object({
   catalogAngle: z.enum(["front", "three-quarter"]),
   nameCategories: z.record(z.string(), z.array(z.string())).default({}),
   subtitleSuggestions: z.array(z.string().min(2)).default([]),
+  collectionScores: z.array(z.object({ title: z.string(), confidence: z.number() })).default([]),
   descriptionHtmlHe: z.string(),
   tagsHe: z.array(z.string()),
   handle: z.string(),
 });
 
-export async function geminiAnalyze(images: Buffer[]): Promise<ProductAnalysis> {
+/** Vision call returning JSON: images first, then the instruction. */
+export async function geminiVisionJson(
+  images: Buffer[],
+  prompt: string,
+  schema: Record<string, unknown>,
+  temperature = 0.4,
+): Promise<string> {
   const res = await withRetry(() =>
     ai().models.generateContent({
       model: textModel(),
-      contents: [{ role: "user", parts: [...images.map((b) => imagePart(b)), { text: ANALYSIS_PROMPT }] }],
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: ANALYSIS_SCHEMA as unknown as Record<string, unknown>,
-        temperature: 0.4,
-      },
+      contents: [{ role: "user", parts: [...images.map((b) => imagePart(b)), { text: prompt }] }],
+      config: { responseMimeType: "application/json", responseSchema: schema, temperature },
     }),
   );
-  const text = res.text;
-  if (!text) throw new HttpError(502, "הניתוח לא החזיר תוצאה. נסו שוב.");
+  if (!res.text) throw new HttpError(502, "לא התקבלה תשובה מהמודל. נסו שוב.");
+  return res.text;
+}
+
+export async function geminiAnalyze(images: Buffer[], prompt: string): Promise<ProductAnalysis> {
+  const text = await geminiVisionJson(images, prompt, analysisSchema() as unknown as Record<string, unknown>);
   return finalizeAnalysis(text);
 }
 
@@ -116,8 +123,12 @@ export function finalizeAnalysis(text: string): ProductAnalysis {
   ) as Record<NameCategory, string[]>;
   const firstPicks = cleanNames(NAME_CATEGORIES.map((c) => nameCategories[c][0] ?? ""));
   if (!firstPicks.length) throw new HttpError(502, "הניתוח לא החזיר שמות. נסו שוב.");
+  const collectionScores = parsed.collectionScores
+    .map((c) => ({ title: c.title.trim(), confidence: Math.max(0, Math.min(100, Math.round(c.confidence))) }))
+    .sort((x, y) => y.confidence - x.confidence);
   return {
     ...parsed,
+    collectionScores,
     nameCategories,
     descriptionHtmlHe: sanitizeHtml(parsed.descriptionHtmlHe),
     handle: slugify(parsed.handle) || "moka-product",

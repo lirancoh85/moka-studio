@@ -1,6 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
-import type { Aspect, ImageVersion, Slot, SlotState } from "@/lib/types";
+import { QC_CHECKS, QC_CHECK_HE, type Aspect, type ImageVersion, type QcResult, type Slot, type SlotState } from "@/lib/types";
+
+export type QcState = QcResult | "checking" | { error: string } | null;
 
 export type Busy = { mode: "generate" | "regenerate" | "edit"; startedAt: number } | null;
 
@@ -28,6 +30,8 @@ export function ShotCard(props: {
   onSelect: (id: string) => void;
   onApprove: (approved: boolean) => void;
   onOpen: (v: ImageVersion) => void;
+  qc: QcState;
+  onCheck: () => void;
 }) {
   const { slot, versions, state, busy, error } = props;
   const label = props.label;
@@ -109,6 +113,8 @@ export function ShotCard(props: {
         </p>
       )}
 
+      {current && !busy && <QcBadge qc={props.qc} onCheck={props.onCheck} onRetake={props.onRegenerate} />}
+
       {versions.length > 1 && (
         <div className="flex gap-1.5 overflow-x-auto px-4 pt-3" role="list" aria-label="גרסאות קודמות">
           {versions.map((v, i) => (
@@ -174,7 +180,15 @@ export function ShotCard(props: {
               <button
                 type="button"
                 disabled={Boolean(busy)}
-                onClick={() => props.onApprove(!state.approved)}
+                onClick={() => {
+                  const q = props.qc;
+                  if (
+                    !state.approved &&
+                    q && typeof q === "object" && "verdict" in q && q.verdict === "fail" &&
+                    !window.confirm("בדיקת האיכות מצאה שהמוצר בתמונה שונה מהמקור. לאשר בכל זאת?")
+                  ) return;
+                  props.onApprove(!state.approved);
+                }}
                 aria-pressed={state.approved}
                 className={`flex items-center gap-1.5 px-3.5 py-1.5 text-sm font-semibold disabled:opacity-40 ${
                   state.approved ? "bg-moss text-paper" : "border border-ink text-ink hover:bg-ink hover:text-paper"
@@ -222,6 +236,74 @@ function useElapsed(startedAt?: number) {
     return () => clearInterval(t);
   }, [startedAt]);
   return startedAt ? Math.max(0, Math.round((now - startedAt) / 1000)) : 0;
+}
+
+const VERDICT = {
+  pass: { box: "border-moss/30 bg-moss/5 text-moss", title: "תואם למוצר" },
+  warn: { box: "border-mocha/30 bg-mocha/5 text-mocha-deep", title: "שינויים קלים מהמוצר" },
+  fail: { box: "border-error/40 bg-error/5 text-error", title: "המוצר שונה מהמקור" },
+} as const;
+
+/** Product-fidelity result under each image. */
+function QcBadge({ qc, onCheck, onRetake }: { qc: QcState; onCheck: () => void; onRetake: () => void }) {
+  const [open, setOpen] = useState(false);
+  if (qc === "checking") {
+    return (
+      <p className="border-t border-line px-4 py-2 text-sm text-ink-soft" aria-live="polite">
+        בודקים התאמה לתמונות המקור…
+      </p>
+    );
+  }
+  if (!qc || "error" in qc) {
+    return (
+      <p className="flex items-center justify-between gap-2 border-t border-line px-4 py-2 text-sm text-ink-soft">
+        <span>{qc ? `הבדיקה נכשלה: ${qc.error}` : "התמונה לא נבדקה מול המקור"}</span>
+        <button type="button" onClick={onCheck} className="shrink-0 text-mocha underline underline-offset-4">
+          בדיקת התאמה
+        </button>
+      </p>
+    );
+  }
+  const v = VERDICT[qc.verdict];
+  const failed = QC_CHECKS.filter((k) => !qc.checks[k].ok);
+  return (
+    <div className={`border-t px-4 py-2 text-sm ${v.box}`} role={qc.verdict === "fail" ? "alert" : undefined}>
+      <div className="flex items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          className="flex items-center gap-1.5 font-semibold"
+        >
+          {v.title} · <span className="tabular-nums">{qc.score}%</span>
+          <span aria-hidden className={`inline-block text-xs transition-transform ${open ? "-rotate-90" : ""}`}>‹</span>
+        </button>
+        {qc.verdict === "fail" && (
+          <button type="button" onClick={onRetake} className="shrink-0 underline underline-offset-4">
+            צלמו מחדש
+          </button>
+        )}
+      </div>
+      {qc.issuesHe.length > 0 && qc.verdict !== "pass" && !open && (
+        <p className="mt-0.5 text-ink">{qc.issuesHe.slice(0, 2).join(" · ")}</p>
+      )}
+      {open && (
+        <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-ink">
+          {QC_CHECKS.map((k) => (
+            <div key={k} className="contents">
+              <dt className={qc.checks[k].ok ? "text-ink-soft" : "font-semibold text-error"}>
+                {qc.checks[k].ok ? "✓" : "✕"} {QC_CHECK_HE[k]}
+              </dt>
+              <dd className={qc.checks[k].ok ? "text-ink-soft" : ""}>{qc.checks[k].noteHe}</dd>
+            </div>
+          ))}
+          {failed.length === 0 && qc.issuesHe.length > 0 && (
+            <dd className="col-span-2 mt-1">{qc.issuesHe.join(" · ")}</dd>
+          )}
+        </dl>
+      )}
+    </div>
+  );
 }
 
 export function CheckIcon() {

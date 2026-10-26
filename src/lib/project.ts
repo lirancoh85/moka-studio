@@ -17,6 +17,7 @@ import {
   type ImageVersion,
   type ProjectBundle,
   type ProjectMeta,
+  type QcResult,
   type ShopifyPush,
   type Slot,
   type SourceImage,
@@ -139,6 +140,20 @@ export async function findVersion(id: string, slot: Slot, versionId: string) {
   return v;
 }
 
+// ---------- quality control ----------
+
+export async function saveQc(id: string, qc: QcResult) {
+  await putObject(`${root(id)}/qc/${qc.versionId}-${stamp()}.json`, Buffer.from(JSON.stringify(qc)), "application/json");
+}
+
+export async function listQc(id: string): Promise<Record<string, QcResult>> {
+  const keys = (await listKeys(`${root(id)}/qc/`)).filter((k) => k.endsWith(".json")).sort();
+  const items = await Promise.all(keys.map((k) => getJson<QcResult>(k)));
+  const out: Record<string, QcResult> = {};
+  for (const q of items) if (q) out[q.versionId] = q; // newest wins
+  return out;
+}
+
 // ---------- shopify ----------
 
 export async function saveShopify(id: string, push: ShopifyPush) {
@@ -153,17 +168,18 @@ export async function getShopify(id: string) {
 
 export async function loadBundle(id: string): Promise<ProjectBundle> {
   const meta = await getMeta(id);
-  const [sources, versions, state, shopify] = await Promise.all([
+  const [sources, versions, state, shopify, qc] = await Promise.all([
     getSources(meta),
     listVersions(id),
     getState(id),
     getShopify(id),
+    listQc(id),
   ]);
   for (const slot of projectSlots(meta)) {
     versions[slot] ??= [];
     state[slot] ??= emptySlot();
   }
-  return { meta, sources, versions, state, shopify };
+  return { meta, sources, versions, state, shopify, qc };
 }
 
 export async function listProjects(limit = 24) {
@@ -192,4 +208,13 @@ export async function listProjects(limit = 24) {
     .filter((m): m is NonNullable<typeof m> => Boolean(m))
     .sort((a, b) => b.createdAt - a.createdAt)
     .slice(0, limit);
+}
+
+/** Product names already chosen by other MOKA Studio projects (uppercase). */
+export async function namesUsedByOtherProjects(exceptId: string): Promise<string[]> {
+  const ids = (await listFolders("projects/")).filter((x) => ID_RE.test(x) && x !== exceptId);
+  const names = await Promise.all(
+    ids.map((pid) => getRecord<ProjectMeta>(`${root(pid)}/meta`).then((m) => m?.name?.trim().toUpperCase() || null).catch(() => null)),
+  );
+  return [...new Set(names.filter((n): n is string => Boolean(n)))];
 }

@@ -3,7 +3,7 @@ import sharp from "sharp";
 import type { ProductAnalysis } from "./types";
 
 /** Deterministic stand-ins for Gemini so the full UI flow can be exercised locally (STUDIO_MOCK_AI=1). */
-export function mockAnalysis(): ProductAnalysis {
+export function mockAnalysis(collections: string[] = []): ProductAnalysis {
   return {
     isFurniture: true,
     qualityWarnings: [],
@@ -28,6 +28,13 @@ export function mockAnalysis(): ProductAnalysis {
       classic: ["CLARA", "LOUIS", "SOPHIA", "AUGUST"],
       modern: ["NOVA", "ARLO", "LUMA", "KAI"],
     },
+    collectionScores: collections
+      .map((title) => {
+        const low = process.env.STUDIO_MOCK_LOWCONF === "1";
+        const conf = title.startsWith("ספות") ? (low ? 55 : 91) : title === "כורסאות" ? (low ? 40 : 6) : 0;
+        return { title, confidence: conf };
+      })
+      .sort((a, b) => b.confidence - a.confidence),
     subtitleSuggestions: ["ספת תלת מושב מדהימה", "ספת בוקלה תלת מושבית", "ספה רכה עם רגלי אגוז"],
     descriptionHtmlHe:
       "<p>ספה רכה ומזמינה בריפוד בוקלה בגוון שמנת, עם קווים מעוגלים שמשרים רוגע על כל הסלון.</p><ul><li>ריפוד בוקלה</li><li>רגלי עץ אגוז קוניות</li><li>שלוש כריות מושב עמוקות</li></ul>",
@@ -48,4 +55,23 @@ export async function mockImage(source: Buffer, aspect: string, prompt: string):
     .composite([{ input: fg, gravity: "center" }])
     .png()
     .toBuffer();
+}
+
+/** Deterministic fake QC: most versions pass, roughly one in three gets flagged. */
+export function mockQc(versionId: string) {
+  const n = [...versionId].reduce((a, c) => a + c.charCodeAt(0), 0) % 3;
+  const changed = n === 0;
+  return {
+    productVisible: true,
+    score: changed ? 58 : 93,
+    issuesHe: changed ? ["משענות היד מעוגלות יותר מהמקור", "נוספה כרית גב שלישית"] : [],
+    checks: {
+      silhouette: { ok: !changed, noteHe: changed ? "משענות יד מעוגלות" : "תואם" },
+      proportions: { ok: true, noteHe: "תואם" },
+      details: { ok: true, noteHe: "תואם" },
+      partsAddedOrMissing: { ok: !changed, noteHe: changed ? "כרית גב נוספת" : "תואם" },
+      color: { ok: true, noteHe: "תואם" },
+      material: { ok: true, noteHe: "תואם" },
+    },
+  };
 }

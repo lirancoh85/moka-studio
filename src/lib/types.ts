@@ -50,6 +50,49 @@ export const NAME_CATEGORY_HE: Record<NameCategory, string> = {
   modern: "מודרני",
 };
 
+/** Fallback when Shopify isn't connected; the live list comes from the store. */
+export const DEFAULT_COLLECTIONS = [
+  "ספות ומערכות ישיבה",
+  "כורסאות",
+  "כיסאות",
+  "מיטות",
+  "שולחנות אוכל",
+  "שולחנות סלון",
+  "שידות ומזנונים",
+  "ארונות ואחסון",
+];
+export const COLLECTION_AUTO_THRESHOLD = 80;
+
+export interface CollectionScore {
+  title: string;
+  confidence: number; // 0-100
+}
+
+/** Result of the product-fidelity check on one generated image. */
+export type QcVerdict = "pass" | "warn" | "fail";
+export interface QcCheck {
+  ok: boolean;
+  noteHe: string;
+}
+export const QC_CHECKS = ["silhouette", "proportions", "details", "partsAddedOrMissing", "color", "material"] as const;
+export type QcCheckKey = (typeof QC_CHECKS)[number];
+export const QC_CHECK_HE: Record<QcCheckKey, string> = {
+  silhouette: "צורה",
+  proportions: "פרופורציות",
+  details: "פרטים (ידיות, גב, רגליים)",
+  partsAddedOrMissing: "חלקים שנוספו או חסרים",
+  color: "צבע",
+  material: "חומר",
+};
+export interface QcResult {
+  versionId: string;
+  score: number; // 0-100, how faithful the product is
+  verdict: QcVerdict;
+  checks: Record<QcCheckKey, QcCheck>;
+  issuesHe: string[];
+  checkedAt: number;
+}
+
 export interface ExtraShot {
   slot: string; // extra1…extra6
   style: ExtraStyle;
@@ -99,6 +142,8 @@ export interface ProductAnalysis {
   nameSuggestions: string[];
   /** English names grouped by style category. Older projects don't have it. */
   nameCategories?: Record<NameCategory, string[]>;
+  /** Model's estimate for each store collection, highest first. */
+  collectionScores?: CollectionScore[];
   /** Hebrew subtitles: what the product is, e.g. "ספת תלת מושב מדהימה". */
   subtitleSuggestions: string[];
   descriptionHtmlHe: string;
@@ -116,6 +161,10 @@ export interface ProjectMeta {
   interiorOverride?: InteriorStyle | null;
   sourceKeys?: string[];
   extras?: ExtraShot[];
+  /** Shopify collection title the product goes into. */
+  collection?: string | null;
+  /** True when it was chosen automatically from a confident guess. */
+  collectionAuto?: boolean;
 }
 
 export type VersionKind = "generate" | "regenerate" | "edit";
@@ -152,6 +201,7 @@ export interface ProjectBundle {
   versions: Record<Slot, ImageVersion[]>;
   state: StudioState;
   shopify: ShopifyPush | null;
+  qc: Record<string, QcResult>; // by version id
 }
 
 /** All slots of a project in display order. */

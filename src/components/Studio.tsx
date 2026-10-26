@@ -7,6 +7,7 @@ import {
   EXTRA_STYLE_HE,
   INTERIOR_HE,
   INTERIOR_STYLES,
+  COLLECTION_AUTO_THRESHOLD,
   MAX_EXTRAS,
   MAX_SOURCES,
   NAME_CATEGORIES,
@@ -30,7 +31,7 @@ import {
 import { api } from "./client-api";
 import { ACCEPTED, compressImage } from "./compress";
 import { buildZip } from "./zip";
-import { CheckIcon, ShotCard, type Busy } from "./ShotCard";
+import { CheckIcon, ShotCard, type Busy, type QcState } from "./ShotCard";
 import { FrameCorners } from "./Dropzone";
 
 const ASPECT_HE: Record<Aspect, string> = { "1:1": "ריבוע", "3:4": "לאורך", "4:3": "לרוחב" };
@@ -49,7 +50,17 @@ function normalizeState(state: StudioState, versions: SlotMap<ImageVersion[]>, s
   return next;
 }
 
-export function Studio({ initial, shopifyReady }: { initial: ProjectBundle; shopifyReady: boolean }) {
+export function Studio({
+  initial,
+  shopifyReady,
+  collections,
+  usedNames: initialUsed,
+}: {
+  initial: ProjectBundle;
+  shopifyReady: boolean;
+  collections: string[];
+  usedNames: string[];
+}) {
   const router = useRouter();
   const params = useSearchParams();
   const id = initial.meta.id;
@@ -70,6 +81,8 @@ export function Studio({ initial, shopifyReady }: { initial: ProjectBundle; shop
   const [pushing, setPushing] = useState(false);
   const [shopify, setShopify] = useState<ShopifyPush | null>(initial.shopify);
   const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const [qcMap, setQcMap] = useState<Record<string, QcState>>(initial.qc ?? {});
+  const [usedNames, setUsedNames] = useState<string[]>(initialUsed);
 
   const analysis = meta.analysis;
 
@@ -139,6 +152,20 @@ export function Studio({ initial, shopifyReady }: { initial: ProjectBundle; shop
   // ---- generation ----
   const slots = projectSlots(meta);
 
+  // ---- quality control: compare each new image with the real photos ----
+  const runQc = useCallback(
+    async (slot: Slot, versionId: string) => {
+      setQcMap((m) => ({ ...m, [versionId]: "checking" }));
+      try {
+        const { qc } = await api.qc(id, slot, versionId);
+        setQcMap((m) => ({ ...m, [versionId]: qc }));
+      } catch (e) {
+        setQcMap((m) => ({ ...m, [versionId]: { error: e instanceof Error ? e.message : "הבדיקה נכשלה" } }));
+      }
+    },
+    [id],
+  );
+
   const run = useCallback(
     async (
       slot: Slot,
@@ -156,6 +183,7 @@ export function Studio({ initial, shopifyReady }: { initial: ProjectBundle; shop
         const { version } = await api.generate(id, { slot, mode, instruction, fromVersionId, lifestyleVersionId });
         setVersions((v) => ({ ...v, [slot]: [...(v[slot] ?? []), version] }));
         setSlotState((s) => ({ ...s, [slot]: { currentId: version.id, approved: false } }));
+        runQc(slot, version.id);
         return version;
       } catch (e) {
         setErrors((er) => ({ ...er, [slot]: e instanceof Error ? e.message : "היצירה נכשלה" }));
@@ -164,7 +192,7 @@ export function Studio({ initial, shopifyReady }: { initial: ProjectBundle; shop
         setBusy((b) => ({ ...b, [slot]: null }));
       }
     },
-    [id, slotState],
+    [id, slotState, runQc],
   );
 
   const missing = slots.filter((s) => !(versions[s]?.length) && !busy[s]);
@@ -313,14 +341,19 @@ export function Studio({ initial, shopifyReady }: { initial: ProjectBundle; shop
               className="mt-0.5 w-full border-b border-transparent bg-transparent text-right font-display text-[2.75rem] leading-[1.1] tracking-[0.04em] outline-none hover:border-line focus:border-ink"
               placeholder="NAME"
             />
+            {usedNames.includes(meta.name.trim().toUpperCase()) && (
+              <p className="mt-1 text-sm text-error">השם הזה כבר בשימוש במוצר אחר. בחרו שם אחר.</p>
+            )}
             <NamePicker
               analysis={analysis}
+              used={usedNames}
               current={meta.name}
               onPick={(n) => patchMeta({ name: n })}
               onMore={async (category) => {
                 try {
-                  const { meta: next } = await api.moreNames(id, category);
+                  const { meta: next, usedNames: used } = await api.moreNames(id, category);
                   setMeta((m) => ({ ...m, analysis: next.analysis }));
+                  setUsedNames(used);
                 } catch (e) {
                   setNotice({ kind: "error", text: e instanceof Error ? e.message : "לא התקבלו שמות" });
                 }
@@ -353,6 +386,14 @@ export function Studio({ initial, shopifyReady }: { initial: ProjectBundle; shop
                 ))}
               </div>
             )}
+
+            <CollectionPicker
+              collections={collections}
+              scores={analysis.collectionScores ?? []}
+              value={meta.collection ?? null}
+              auto={Boolean(meta.collectionAuto)}
+              onChange={(c) => patchMeta({ collection: c, collectionAuto: false })}
+            />
 
             <dl className="mt-7 grid grid-cols-[88px_1fr] gap-x-3 gap-y-2 text-[15px]">
               <dt className="text-ink-soft">סוג</dt>
@@ -498,6 +539,14 @@ export function Studio({ initial, shopifyReady }: { initial: ProjectBundle; shop
                     onSelect={(vid) => setSlotState((s) => ({ ...s, [slot]: { currentId: vid, approved: false } }))}
                     onApprove={(ok) => setSlotState((s) => ({ ...s, [slot]: { ...s[slot], approved: ok } }))}
                     onOpen={setLightbox}
+                    qc={(() => {
+                      const cur = slotState[slot]?.currentId;
+                      return cur ? qcMap[cur] ?? null : null;
+                    })()}
+                    onCheck={() => {
+                      const cur = slotState[slot]?.currentId;
+                      if (cur) runQc(slot, cur);
+                    }}
                   />
                 ))}
                 {(meta.extras?.length ?? 0) < MAX_EXTRAS && (
@@ -543,11 +592,17 @@ export function Studio({ initial, shopifyReady }: { initial: ProjectBundle; shop
               <button
                 type="button"
                 onClick={sendToShopify}
-                disabled={!approved.length || pushing || !shopifyReady || !meta.name.trim()}
-                title={!shopifyReady ? "Shopify לא מחובר — ראו README" : undefined}
+                disabled={!approved.length || pushing || !shopifyReady || !meta.name.trim() || !meta.collection}
+                title={
+                  !shopifyReady
+                    ? "Shopify לא מחובר — ראו README"
+                    : !meta.collection
+                      ? "בחרו קולקציה קודם"
+                      : undefined
+                }
                 className="bg-ink px-4 py-2 font-semibold text-paper hover:bg-mocha-deep disabled:opacity-40"
               >
-                {pushing ? "שולחים…" : "שליחה ל־Shopify כטיוטה"}
+                {pushing ? "שולחים…" : !meta.collection ? "בחרו קולקציה כדי לשלוח" : "שליחה ל־Shopify כטיוטה"}
               </button>
             </div>
           </div>
@@ -570,15 +625,72 @@ export function Studio({ initial, shopifyReady }: { initial: ProjectBundle; shop
   );
 }
 
+// ---------- collection picker ----------
+
+function CollectionPicker({
+  collections,
+  scores,
+  value,
+  auto,
+  onChange,
+}: {
+  collections: string[];
+  scores: { title: string; confidence: number }[];
+  value: string | null;
+  auto: boolean;
+  onChange: (c: string | null) => void;
+}) {
+  const top = scores[0];
+  const confident = top && top.confidence >= COLLECTION_AUTO_THRESHOLD;
+  const options = [...new Set([...collections, ...(value ? [value] : [])])];
+  const pct = (t: string) => scores.find((x) => x.title === t)?.confidence;
+
+  return (
+    <div className="mt-6">
+      <label htmlFor="pcol" className="text-sm text-ink-soft">
+        קולקציה ב־Shopify
+      </label>
+      <select
+        id="pcol"
+        value={value ?? ""}
+        onChange={(e) => onChange(e.target.value || null)}
+        aria-invalid={!value}
+        className={`mt-1 block w-full border bg-paper px-2 py-2 text-[15px] ${value ? "border-line" : "border-error"}`}
+      >
+        <option value="">בחרו קולקציה…</option>
+        {options.map((c) => (
+          <option key={c} value={c}>
+            {c}
+            {pct(c) ? ` · ${pct(c)}%` : ""}
+          </option>
+        ))}
+      </select>
+      {!value && top && !confident && (
+        <p className="mt-1.5 text-sm text-error">
+          לא בטוחים מספיק ({top.title} · {top.confidence}%). בחרו קולקציה לפני השליחה ל־Shopify.
+        </p>
+      )}
+      {!value && (!top || confident) && (
+        <p className="mt-1.5 text-sm text-error">בחרו קולקציה לפני השליחה ל־Shopify.</p>
+      )}
+      {value && auto && confident && (
+        <p className="mt-1.5 text-sm text-moss">נבחרה אוטומטית · {top.confidence}% ביטחון</p>
+      )}
+    </div>
+  );
+}
+
 // ---------- name picker ----------
 
 function NamePicker({
   analysis,
+  used,
   current,
   onPick,
   onMore,
 }: {
   analysis: ProductAnalysis;
+  used: string[];
   current: string;
   onPick: (name: string) => void;
   onMore: (category: NameCategory) => Promise<void>;
@@ -587,8 +699,9 @@ function NamePicker({
   const [tab, setTab] = useState<NameCategory>("israeli");
   const [loading, setLoading] = useState(false);
 
-  // Older projects: a single flat list.
-  const names = cats ? cats[tab] ?? [] : analysis.nameSuggestions;
+  // Older projects: a single flat list. Names taken by other products are never offered.
+  const taken = new Set(used);
+  const names = (cats ? cats[tab] ?? [] : analysis.nameSuggestions).filter((n) => !taken.has(n) || n === current);
 
   return (
     <div className="mt-3">

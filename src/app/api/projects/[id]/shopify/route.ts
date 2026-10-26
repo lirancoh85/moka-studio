@@ -14,6 +14,7 @@ export const POST = route<{ id: string }>(async (_req, { id }) => {
   const { meta, versions, state } = await loadBundle(id);
   if (!meta.analysis) throw new HttpError(409, "יש לנתח את המוצר קודם");
   if (!meta.name.trim()) throw new HttpError(400, "חסר שם מוצר");
+  if (!meta.collection) throw new HttpError(400, "בחרו קולקציה לפני השליחה ל־Shopify");
 
   const slots = exportOrder(projectSlots(meta));
   const approved = slots.flatMap((slot) => {
@@ -40,6 +41,7 @@ export const POST = route<{ id: string }>(async (_req, { id }) => {
     tags: meta.analysis.tagsHe,
     handle,
     subtitle,
+    collection: meta.collection,
     images,
   });
   const { warnings, ...rest } = result;

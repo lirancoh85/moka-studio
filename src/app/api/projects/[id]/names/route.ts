@@ -2,6 +2,7 @@ import { z } from "zod";
 import { route } from "@/lib/http";
 import { HttpError, getMeta, saveMeta } from "@/lib/project";
 import { suggestNames } from "@/lib/ai";
+import { usedNames } from "@/lib/catalog";
 import { NAME_CATEGORIES, type NameCategory } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -20,7 +21,9 @@ export const POST = route<{ id: string }>(async (req, { id }) => {
   const category = parsed.data.category as NameCategory;
   const cats = a.nameCategories ?? ({ israeli: a.nameSuggestions } as Record<NameCategory, string[]>);
   const shown = NAME_CATEGORIES.flatMap((c) => cats[c] ?? []);
-  const fresh = await suggestNames(a, category, shown);
+  const used = await usedNames(id);
+  const taken = new Set(used);
+  const fresh = (await suggestNames(a, category, [...new Set([...shown, ...used])])).filter((n) => !taken.has(n));
   if (!fresh.length) throw new HttpError(502, "לא התקבלו שמות חדשים. נסו שוב.");
   // Re-read: the name or subtitle may have been edited while the model was thinking.
   const latest = await getMeta(id);
@@ -29,5 +32,5 @@ export const POST = route<{ id: string }>(async (req, { id }) => {
   const nameCategories = { ...latestCats, [category]: [...(latestCats[category] ?? []), ...fresh] } as Record<NameCategory, string[]>;
   const next = { ...latest, analysis: { ...base, nameCategories } };
   await saveMeta(next);
-  return { meta: next, added: fresh };
+  return { meta: next, added: fresh, usedNames: used };
 });

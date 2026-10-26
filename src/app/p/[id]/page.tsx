@@ -4,6 +4,7 @@ import { Header } from "@/components/Header";
 import { Studio } from "@/components/Studio";
 import { HttpError, loadBundle } from "@/lib/project";
 import { shopifyConfigured } from "@/lib/shopify";
+import { collectionTitles, usedNames } from "@/lib/catalog";
 
 export const dynamic = "force-dynamic";
 
@@ -26,11 +27,12 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
     if (e instanceof HttpError && e.status === 404) notFound();
     throw e;
   }
+  const [{ titles }, used] = await Promise.all([collectionTitles(), usedNames(id)]);
   return (
     <>
       <Header />
       <Suspense>
-        <Studio initial={bundle} shopifyReady={shopifyConfigured()} />
+        <Studio initial={bundle} shopifyReady={shopifyConfigured()} collections={titles} usedNames={used} />
       </Suspense>
     </>
   );
