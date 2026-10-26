@@ -1,5 +1,6 @@
 import { route } from "@/lib/http";
 import { provider } from "@/lib/ai";
+import { openaiPing } from "@/lib/openai";
 import { getObject, putObject, useBlob } from "@/lib/storage";
 import { shopifyConfigured, subtitleField } from "@/lib/shopify";
 
@@ -25,6 +26,15 @@ export const GET = route(async () => {
     checks.storageRead = (await getObject(key)) ? "ok" : "missing";
   } catch (e) {
     checks.storageError = String((e as Error)?.message ?? e).slice(0, 300);
+  }
+  if (process.env.OPENAI_API_KEY) {
+    const key = process.env.OPENAI_API_KEY;
+    checks.openaiKeyShape = {
+      startsWithSk: key.trim().startsWith("sk-"),
+      hadSpacesOrQuotes: /[\s"']/.test(key),
+      length: key.replace(/[\s"']/g, "").length,
+    };
+    checks.openai = await openaiPing();
   }
   if (shopifyConfigured()) {
     try {

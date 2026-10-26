@@ -10,7 +10,7 @@ export const mockAi = () => process.env.STUDIO_MOCK_AI === "1" && process.env.VE
 
 let client: GoogleGenAI | null = null;
 function ai() {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = (process.env.GEMINI_API_KEY || "").replace(/[\s"']/g, "");
   if (!apiKey) throw new HttpError(500, "חסר מפתח GEMINI_API_KEY בהגדרות השרת");
   client ??= new GoogleGenAI({ apiKey });
   return client;

@@ -7,7 +7,8 @@ import type { ProductAnalysis } from "./types";
 
 let client: OpenAI | null = null;
 function ai() {
-  const apiKey = process.env.OPENAI_API_KEY;
+  // Strip spaces, line breaks and quotes that sneak in when a key is pasted into Vercel.
+  const apiKey = (process.env.OPENAI_API_KEY || "").replace(/[\s"']/g, "");
   if (!apiKey) throw new HttpError(500, "חסר מפתח OPENAI_API_KEY בהגדרות השרת");
   client ??= new OpenAI({ apiKey, timeout: 280_000, maxRetries: 0 });
   return client;
@@ -69,7 +70,15 @@ function translate(err: unknown): Error {
     return new HttpError(402, "נגמרה היתרה בחשבון OpenAI. הוסיפו קרדיט ב־platform.openai.com → Billing.");
   }
   if (e.status === 429) return new HttpError(429, "יותר מדי בקשות ל־OpenAI כרגע. נסו שוב בעוד דקה.");
-  if (e.status === 401) return new HttpError(500, "מפתח ה־API של OpenAI לא תקין.");
+  if (e.status === 401) {
+    const reason = /scope|permission/i.test(msg)
+      ? "למפתח אין הרשאות מספיקות (Restricted). צרו מפתח עם הרשאות All."
+      : /incorrect|invalid|revoked|deactivated/i.test(msg)
+        ? "המפתח לא קיים יותר או הוקלד לא נכון (ייתכן שבוטל או הוחלף)."
+        : "";
+    // OpenAI's message only ever shows the key's last 4 characters, so it is safe to display.
+    return new HttpError(500, `OpenAI דחה את מפתח ה־API. ${reason} (${msg.slice(0, 160)})`);
+  }
   if (e.status === 403 && /verif/i.test(msg)) {
     return new HttpError(500, "הארגון ב־OpenAI צריך אימות כדי להשתמש במודלי תמונה (Settings → Organization → Verify).");
   }
@@ -150,4 +159,18 @@ export async function openaiGenerate(opts: { prompt: string; images: Buffer[]; a
   const b64 = res.data?.[0]?.b64_json;
   if (!b64) throw new HttpError(502, "המודל לא החזיר תמונה. נסו שוב.");
   return Buffer.from(b64, "base64");
+}
+
+/** Setup check: is the key accepted, and can it see both models? Costs nothing. */
+export async function openaiPing() {
+  const out: Record<string, string> = {};
+  for (const [label, model] of [["text", openaiTextModel()], ["image", openaiImageModel()]] as const) {
+    try {
+      await ai().models.retrieve(model);
+      out[label] = `ok (${model})`;
+    } catch (err) {
+      out[label] = `${model}: ${translate(err).message}`;
+    }
+  }
+  return out;
 }
