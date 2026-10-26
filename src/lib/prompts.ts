@@ -1,9 +1,33 @@
-import type { ExtraStyle, InteriorStyle, ProductAnalysis, Slot } from "./types";
+import { NAME_CATEGORIES, type ExtraStyle, type InteriorStyle, type NameCategory, type ProductAnalysis, type Slot } from "./types";
 
 /**
  * Prompt library. Every image prompt is: fidelity lock + product spec + shot brief + exclusions.
  * The reference photos are always sent before the text, so "the reference photographs" is unambiguous.
  */
+
+/** Shared rules for English product names, used by the analysis and by "more names". */
+export const NAME_CATEGORY_GUIDE: Record<NameCategory, string> = {
+  israeli: "Israeli: contemporary Israeli first names and Hebrew nature words, written in English letters (style of ROTEM, NOA, TAMAR, LIOR, OFIR, SHIRA, ELLA, YAEL).",
+  scandinavian: "Scandinavian: Nordic first names and Nordic words (style of ASTRID, FREJA, LINNEA, NORA, SVEA, ELSA, AKSEL). Plain Latin letters only, no å/ø/ä. Avoid any name that is a known IKEA product.",
+  heritage: "Heritage: names with deep Hebrew and Land-of-Israel roots — biblical names and historic places and landscapes (style of YARDEN, CARMEL, GILAD, ARAVA, SHILO, NAAMA, ADIEL).",
+  classic: "Classic: timeless international names with old-world elegance (style of CLARA, LOUIS, VICTOR, SOPHIA, AUGUST, ELEANOR).",
+  modern: "Modern: short contemporary names and invented-sounding word names (style of NOVA, ARLO, KAI, LUMA, ZEN, REMY).",
+};
+
+export const NAME_RULES = `Every name: one word in UPPERCASE Latin letters, 3–8 letters, easy to pronounce for Israelis, sophisticated and calm, and fitting the product's character (soft/rounded, architectural, natural wood, light, heavy…). Never furniture-type words, brand names, or well-known furniture model names. No duplicates across categories. Categories:
+- ${NAME_CATEGORIES.map((c) => NAME_CATEGORY_GUIDE[c]).join("\n- ")}`;
+
+export function moreNamesPrompt(a: ProductAnalysis, category: NameCategory, exclude: string[]) {
+  return `You name products for MOKA, a premium Israeli furniture brand. The store shows a short English name as the product title (e.g. ROTEM) with a Hebrew subtitle under it.
+
+Product: ${a.furnitureTypeEn}. ${a.productSpecEn}
+
+Suggest 6 NEW names in this category only:
+${NAME_CATEGORY_GUIDE[category]}
+
+${NAME_RULES.split("Categories:")[0].trim()}
+Do not repeat any of these: ${exclude.join(", ") || "(none)"}.`;
+}
 
 export const ANALYSIS_PROMPT = `You are the senior merchandiser and product photographer for MOKA, a premium Israeli furniture brand (comparable to high-end European furniture houses).
 
@@ -17,11 +41,11 @@ Return JSON matching the schema. Rules:
 - interiorStyle: pick the one that suits the product best.
 - heroBackdropEn: a soft studio backdrop tone that flatters the product colors (e.g. "warm greige", "soft sand", "pale sage", "muted clay"). Never white.
 - catalogAngle: "front" for products read best head-on (cabinets, sideboards, beds), "three-quarter" for products with depth worth showing (sofas, armchairs, chairs, tables).
-- nameSuggestions: exactly 5 product names in UPPERCASE Latin letters, used as the product title in the store (examples of the house style: ROTEM, ALBA, NOA, TAMAR, KEREN, LIOR, ELLA). One word, 3-7 letters, easy to pronounce in Hebrew and English, sophisticated and calm. Prefer Hebrew-origin words and names, or soft Mediterranean ones, whose meaning or sound fits the product's character (soft/rounded, architectural, natural wood, light…). No furniture-type words, no brand names, no existing famous furniture model names. The first is your top recommendation.
+- nameCategories: product names for the store title, 4 per category. ${NAME_RULES}
 - subtitleSuggestions: exactly 3 Hebrew subtitles shown under the name, saying what the product is, 2-5 words, in the house style "ספת תלת מושב מדהימה", "ספה דו מושבית בבד ארוג", "כורסת בוקלה מעוגלת". Start with the furniture type (seat count when it is a sofa), then one distinguishing feature or an elegant adjective. Use correct Hebrew construct forms (ספה → ספת, כורסה → כורסת, מיטה → מיטת).
 - descriptionHtmlHe: Hebrew product description for the Shopify page as simple HTML: one <p> of 2-3 sentences in a calm, confident premium tone, then a <ul> of 3-5 <li> items covering materials, construction and notable details. Do not invent dimensions, warranties, fabrics or features you cannot see.
 - tagsHe: 4-8 short Hebrew tags (type, material, color, style).
-- handle: a lowercase latin URL slug of the first name suggestion plus the furniture type in English, e.g. "rotem-sofa".
+- handle: a lowercase latin URL slug of the first Israeli name plus the furniture type in English, e.g. "rotem-sofa".
 - isFurniture: false if the photos do not show a furniture product.
 - qualityWarnings: Hebrew, only real problems that will hurt results (blurry, very dark, product cropped, product heavily obstructed, references show different products). Empty array if fine.`;
 
@@ -46,7 +70,11 @@ export const ANALYSIS_SCHEMA = {
     roomEn: { type: "string" },
     heroBackdropEn: { type: "string" },
     catalogAngle: { type: "string", enum: ["front", "three-quarter"] },
-    nameSuggestions: { type: "array", items: { type: "string" } },
+    nameCategories: {
+      type: "object",
+      properties: Object.fromEntries(NAME_CATEGORIES.map((c) => [c, { type: "array", items: { type: "string" } }])),
+      required: [...NAME_CATEGORIES],
+    },
     subtitleSuggestions: { type: "array", items: { type: "string" } },
     descriptionHtmlHe: { type: "string" },
     tagsHe: { type: "array", items: { type: "string" } },
@@ -68,7 +96,7 @@ export const ANALYSIS_SCHEMA = {
     "roomEn",
     "heroBackdropEn",
     "catalogAngle",
-    "nameSuggestions",
+    "nameCategories",
     "subtitleSuggestions",
     "descriptionHtmlHe",
     "tagsHe",
@@ -90,7 +118,7 @@ export const ANALYSIS_SCHEMA = {
     "roomEn",
     "heroBackdropEn",
     "catalogAngle",
-    "nameSuggestions",
+    "nameCategories",
     "subtitleSuggestions",
     "descriptionHtmlHe",
     "tagsHe",
@@ -222,3 +250,9 @@ ${slot === "white" ? "- The background must remain pure white #FFFFFF.\n" : ""}-
 
 Output the edited photograph.`;
 }
+
+export const NAMES_SCHEMA = {
+  type: "object",
+  properties: { names: { type: "array", items: { type: "string" } } },
+  required: ["names"],
+} as const;

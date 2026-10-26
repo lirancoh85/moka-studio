@@ -42,7 +42,8 @@ export const POST = route<{ id: string }>(async (_req, { id }) => {
     subtitle,
     images,
   });
-  const push = { ...result, createdAt: Date.now() };
+  const { warnings, ...rest } = result;
+  const push = { ...rest, createdAt: Date.now() };
   await saveShopify(id, push);
-  return { shopify: push };
+  return { shopify: push, warnings };
 });

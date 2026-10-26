@@ -113,6 +113,19 @@ export async function openaiAnalyze(images: Buffer[]): Promise<ProductAnalysis> 
   return finalizeAnalysis(res.output_text);
 }
 
+/** Small JSON-returning text call (no images). */
+export async function openaiJson(prompt: string, schema: Record<string, unknown>, name = "result"): Promise<unknown> {
+  const res = await withRetry(() =>
+    ai().responses.create({
+      model: openaiTextModel(),
+      input: prompt,
+      text: { format: { type: "json_schema", name, strict: true, schema: strictSchema(schema) as Record<string, unknown> } },
+    }),
+  );
+  if (!res.output_text) throw new HttpError(502, "לא התקבלה תשובה. נסו שוב.");
+  return JSON.parse(res.output_text);
+}
+
 export async function openaiGenerate(opts: { prompt: string; images: Buffer[]; aspectRatio: string }): Promise<Buffer> {
   const model = openaiImageModel();
   const files = await Promise.all(

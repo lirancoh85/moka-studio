@@ -85,7 +85,7 @@ Without `BLOB_READ_WRITE_TOKEN`, files are stored in `./.data`.
 
 **Export order** (ZIP filenames and Shopify media order): lifestyle → white → lifestyle angle → detail → extras. Lifestyle becomes the featured image. Files are named `{handle}-01-lifestyle.jpg` etc.
 
-**Shopify.** Creates a **draft** product with the English name as title, the Hebrew subtitle in the `custom.subtitle` metafield (configurable with `SHOPIFY_SUBTITLE_METAFIELD`), description HTML, product type, tags, vendor and approved images. Nothing is published. Price, variants, inventory and collections are left for you to set in Shopify.
+**Shopify.** Creates a **draft** product with the English name as title, the Hebrew subtitle in the product metafield named **כותרת משנה** (found automatically by name; override with `SHOPIFY_SUBTITLE_METAFIELD`), description HTML, product type, tags, vendor and approved images. Nothing is published. Price, variants, inventory and collections are left for you to set in Shopify.
 
 **Storage model.** Every object has a unique key and is never overwritten. Edits to name/state write a new timestamped record and the newest one wins, which avoids CDN cache staleness and race conditions between parallel generations.
 
@@ -102,7 +102,7 @@ Without `BLOB_READ_WRITE_TOKEN`, files are stored in `./.data`.
 | `GEMINI_IMAGE_SIZE` | `2K` | `1K`, `2K`, `4K` |
 | `SHOPIFY_API_VERSION` | `2025-10` | |
 | `SHOPIFY_VENDOR` | `MOKA` | |
-| `SHOPIFY_SUBTITLE_METAFIELD` | `custom.subtitle` | `namespace.key`, or `none` |
+| `SHOPIFY_SUBTITLE_METAFIELD` | auto ("כותרת משנה") | `namespace.key` to force, or `none` |
 
 Model IDs change as OpenAI and Google ship new versions — if a call returns "model not found", update the variable.
 

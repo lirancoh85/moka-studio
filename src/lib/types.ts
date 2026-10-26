@@ -40,6 +40,16 @@ export type ExtraStyle = InteriorStyle | "studio";
 export const EXTRA_STYLES: ExtraStyle[] = [...INTERIOR_STYLES, "studio"];
 export const EXTRA_STYLE_HE = (s: ExtraStyle) => (s === "studio" ? "סטודיו, רקע צבעוני עדין" : INTERIOR_HE[s]);
 
+export const NAME_CATEGORIES = ["israeli", "scandinavian", "heritage", "classic", "modern"] as const;
+export type NameCategory = (typeof NAME_CATEGORIES)[number];
+export const NAME_CATEGORY_HE: Record<NameCategory, string> = {
+  israeli: "ישראלי",
+  scandinavian: "סקנדינבי",
+  heritage: "מורשת",
+  classic: "קלאסי",
+  modern: "מודרני",
+};
+
 export interface ExtraShot {
   slot: string; // extra1…extra6
   style: ExtraStyle;
@@ -87,6 +97,8 @@ export interface ProductAnalysis {
   catalogAngle: "front" | "three-quarter";
   /** English product names (store title), first is the recommendation. */
   nameSuggestions: string[];
+  /** English names grouped by style category. Older projects don't have it. */
+  nameCategories?: Record<NameCategory, string[]>;
   /** Hebrew subtitles: what the product is, e.g. "ספת תלת מושב מדהימה". */
   subtitleSuggestions: string[];
   descriptionHtmlHe: string;

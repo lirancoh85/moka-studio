@@ -20,12 +20,19 @@ export function mockAnalysis(): ProductAnalysis {
     roomEn: "living room",
     heroBackdropEn: "warm greige",
     catalogAngle: "three-quarter",
-    nameSuggestions: ["ALBA", "ROTEM", "NOA", "TAMAR", "LIOR"],
+    nameSuggestions: ["ROTEM", "ASTRID", "CARMEL", "CLARA", "NOVA"],
+    nameCategories: {
+      israeli: ["ROTEM", "NOA", "TAMAR", "LIOR"],
+      scandinavian: ["ASTRID", "FREJA", "LINNEA", "SVEA"],
+      heritage: ["CARMEL", "YARDEN", "GILAD", "ARAVA"],
+      classic: ["CLARA", "LOUIS", "SOPHIA", "AUGUST"],
+      modern: ["NOVA", "ARLO", "LUMA", "KAI"],
+    },
     subtitleSuggestions: ["ספת תלת מושב מדהימה", "ספת בוקלה תלת מושבית", "ספה רכה עם רגלי אגוז"],
     descriptionHtmlHe:
       "<p>ספה רכה ומזמינה בריפוד בוקלה בגוון שמנת, עם קווים מעוגלים שמשרים רוגע על כל הסלון.</p><ul><li>ריפוד בוקלה</li><li>רגלי עץ אגוז קוניות</li><li>שלוש כריות מושב עמוקות</li></ul>",
     tagsHe: ["ספה", "בוקלה", "שמנת", "מודרני אורגני"],
-    handle: "alba-sofa",
+    handle: "rotem-sofa",
   };
 }
 

@@ -9,6 +9,10 @@ import {
   INTERIOR_STYLES,
   MAX_EXTRAS,
   MAX_SOURCES,
+  NAME_CATEGORIES,
+  NAME_CATEGORY_HE,
+  type NameCategory,
+  type ProductAnalysis,
   emptySlot,
   projectSlots,
   slotLabel,
@@ -246,9 +250,13 @@ export function Studio({ initial, shopifyReady }: { initial: ProjectBundle; shop
     setPushing(true);
     try {
       await api.saveState(id, slotState); // make sure the server sees the latest approvals
-      const { shopify: push } = await api.pushShopify(id);
+      const { shopify: push, warnings } = await api.pushShopify(id);
       setShopify(push);
-      setNotice({ kind: "ok", text: `"${push.title}" נוצר ב־Shopify כטיוטה` });
+      setNotice(
+        warnings?.length
+          ? { kind: "error", text: `"${push.title}" נוצר ב־Shopify כטיוטה, אבל: ${warnings.join(" ")}` }
+          : { kind: "ok", text: `"${push.title}" נוצר ב־Shopify כטיוטה, עם כותרת המשנה` },
+      );
     } catch (e) {
       setNotice({ kind: "error", text: e instanceof Error ? e.message : "השליחה נכשלה" });
     } finally {
@@ -305,21 +313,19 @@ export function Studio({ initial, shopifyReady }: { initial: ProjectBundle; shop
               className="mt-0.5 w-full border-b border-transparent bg-transparent text-right font-display text-[2.75rem] leading-[1.1] tracking-[0.04em] outline-none hover:border-line focus:border-ink"
               placeholder="NAME"
             />
-            <div className="mt-3 flex flex-wrap gap-1.5" aria-label="הצעות לשם">
-              {analysis.nameSuggestions.map((n) => (
-                <button
-                  key={n}
-                  type="button"
-                  dir="ltr"
-                  onClick={() => patchMeta({ name: n })}
-                  className={`px-2.5 py-1 text-sm tracking-wide ${
-                    n === meta.name ? "bg-ink text-paper" : "bg-paper text-ink ring-1 ring-line hover:ring-ink"
-                  }`}
-                >
-                  {n}
-                </button>
-              ))}
-            </div>
+            <NamePicker
+              analysis={analysis}
+              current={meta.name}
+              onPick={(n) => patchMeta({ name: n })}
+              onMore={async (category) => {
+                try {
+                  const { meta: next } = await api.moreNames(id, category);
+                  setMeta((m) => ({ ...m, analysis: next.analysis }));
+                } catch (e) {
+                  setNotice({ kind: "error", text: e instanceof Error ? e.message : "לא התקבלו שמות" });
+                }
+              }}
+            />
 
             <label htmlFor="psub" className="mt-6 block text-sm text-ink-soft">
               כותרת משנה
@@ -561,6 +567,79 @@ export function Studio({ initial, shopifyReady }: { initial: ProjectBundle; shop
 
       <Lightbox version={lightbox} sources={sources} onClose={() => setLightbox(null)} />
     </>
+  );
+}
+
+// ---------- name picker ----------
+
+function NamePicker({
+  analysis,
+  current,
+  onPick,
+  onMore,
+}: {
+  analysis: ProductAnalysis;
+  current: string;
+  onPick: (name: string) => void;
+  onMore: (category: NameCategory) => Promise<void>;
+}) {
+  const cats = analysis.nameCategories;
+  const [tab, setTab] = useState<NameCategory>("israeli");
+  const [loading, setLoading] = useState(false);
+
+  // Older projects: a single flat list.
+  const names = cats ? cats[tab] ?? [] : analysis.nameSuggestions;
+
+  return (
+    <div className="mt-3">
+      {cats && (
+        <div role="tablist" aria-label="סגנון שם" className="flex flex-wrap gap-x-4 gap-y-1 border-b border-line text-sm">
+          {NAME_CATEGORIES.map((c) => (
+            <button
+              key={c}
+              type="button"
+              role="tab"
+              aria-selected={tab === c}
+              onClick={() => setTab(c)}
+              className={`-mb-px border-b-2 pb-1.5 ${
+                tab === c ? "border-ink font-semibold text-ink" : "border-transparent text-ink-soft hover:text-ink"
+              }`}
+            >
+              {NAME_CATEGORY_HE[c]}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="mt-2.5 flex flex-wrap gap-1.5" role={cats ? "tabpanel" : undefined} aria-label="הצעות לשם">
+        {names.map((n) => (
+          <button
+            key={n}
+            type="button"
+            dir="ltr"
+            onClick={() => onPick(n)}
+            className={`px-2.5 py-1 text-sm tracking-wide ${
+              n === current ? "bg-ink text-paper" : "bg-paper text-ink ring-1 ring-line hover:ring-ink"
+            }`}
+          >
+            {n}
+          </button>
+        ))}
+        {cats && (
+          <button
+            type="button"
+            disabled={loading}
+            onClick={async () => {
+              setLoading(true);
+              await onMore(tab);
+              setLoading(false);
+            }}
+            className="px-2.5 py-1 text-sm text-mocha underline underline-offset-4 disabled:opacity-50"
+          >
+            {loading ? "חושבים…" : "עוד שמות"}
+          </button>
+        )}
+      </div>
+    </div>
   );
 }
 

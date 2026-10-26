@@ -1,7 +1,7 @@
 import { route } from "@/lib/http";
 import { provider } from "@/lib/ai";
 import { getObject, putObject, useBlob } from "@/lib/storage";
-import { shopifyConfigured } from "@/lib/shopify";
+import { shopifyConfigured, subtitleField } from "@/lib/shopify";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,6 +25,14 @@ export const GET = route(async () => {
     checks.storageRead = (await getObject(key)) ? "ok" : "missing";
   } catch (e) {
     checks.storageError = String((e as Error)?.message ?? e).slice(0, 300);
+  }
+  if (shopifyConfigured()) {
+    try {
+      const f = await subtitleField();
+      checks.shopifySubtitleField = f ? `${f.name} → ${f.namespace}.${f.key} (${f.type})` : "not found";
+    } catch (e) {
+      checks.shopifyError = String((e as Error)?.message ?? e).slice(0, 300);
+    }
   }
   return checks;
 });

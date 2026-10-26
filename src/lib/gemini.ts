@@ -2,7 +2,7 @@ import "server-only";
 import { GoogleGenAI, type Part } from "@google/genai";
 import { z } from "zod";
 import { ANALYSIS_PROMPT, ANALYSIS_SCHEMA } from "./prompts";
-import { INTERIOR_STYLES, type ProductAnalysis } from "./types";
+import { INTERIOR_STYLES, NAME_CATEGORIES, type NameCategory, type ProductAnalysis } from "./types";
 import { HttpError } from "./project";
 
 /** Local UI testing without spending credits. Never active in production builds. */
@@ -79,7 +79,7 @@ export const AnalysisZ = z.object({
   roomEn: z.string().min(2),
   heroBackdropEn: z.string().min(2),
   catalogAngle: z.enum(["front", "three-quarter"]),
-  nameSuggestions: z.array(z.string().min(2)).min(1),
+  nameCategories: z.record(z.string(), z.array(z.string())).default({}),
   subtitleSuggestions: z.array(z.string().min(2)).default([]),
   descriptionHtmlHe: z.string(),
   tagsHe: z.array(z.string()),
@@ -111,11 +111,17 @@ export function finalizeAnalysis(text: string): ProductAnalysis {
   } catch {
     throw new HttpError(502, "תוצאת הניתוח לא הייתה תקינה. נסו שוב.");
   }
+  const nameCategories = Object.fromEntries(
+    NAME_CATEGORIES.map((c) => [c, cleanNames(parsed.nameCategories[c] ?? []).slice(0, 6)]),
+  ) as Record<NameCategory, string[]>;
+  const firstPicks = cleanNames(NAME_CATEGORIES.map((c) => nameCategories[c][0] ?? ""));
+  if (!firstPicks.length) throw new HttpError(502, "הניתוח לא החזיר שמות. נסו שוב.");
   return {
     ...parsed,
+    nameCategories,
     descriptionHtmlHe: sanitizeHtml(parsed.descriptionHtmlHe),
     handle: slugify(parsed.handle) || "moka-product",
-    nameSuggestions: [...new Set(parsed.nameSuggestions.map((s) => s.trim().toUpperCase()))].slice(0, 5),
+    nameSuggestions: firstPicks,
     subtitleSuggestions: [...new Set(parsed.subtitleSuggestions.map((s) => s.trim()))].slice(0, 3),
   };
 }
@@ -149,7 +155,28 @@ export async function geminiGenerate(opts: {
   return Buffer.from(imgPart.inlineData.data, "base64");
 }
 
+/** Small JSON-returning text call (no images), e.g. more name ideas. */
+export async function geminiJson(prompt: string, schema: Record<string, unknown>): Promise<unknown> {
+  const res = await withRetry(() =>
+    ai().models.generateContent({
+      model: textModel(),
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      config: { responseMimeType: "application/json", responseSchema: schema, temperature: 0.9 },
+    }),
+  );
+  if (!res.text) throw new HttpError(502, "לא התקבלה תשובה. נסו שוב.");
+  return JSON.parse(res.text);
+}
+
 // ---------- helpers ----------
+
+/** Uppercase single-word Latin names, deduplicated. */
+export function cleanNames(list: string[]) {
+  const out = list
+    .map((s) => s.trim().toUpperCase().normalize("NFKD").replace(/[^A-Z]/g, ""))
+    .filter((s) => s.length >= 2 && s.length <= 12);
+  return [...new Set(out)];
+}
 
 export function slugify(s: string) {
   return s

@@ -50,7 +50,9 @@ export const api = {
     call<{ meta: ProjectMeta; extra: { slot: Slot } }>(`/api/projects/${id}/extras`, json(body)),
   removeExtra: (id: string, slot: Slot) =>
     call<{ meta: ProjectMeta }>(`/api/projects/${id}/extras?slot=${encodeURIComponent(slot)}`, { method: "DELETE" }),
+  moreNames: (id: string, category: string) =>
+    call<{ meta: ProjectMeta; added: string[] }>(`/api/projects/${id}/names`, json({ category })),
   saveState: (id: string, state: StudioState) => call<{ ok: true }>(`/api/projects/${id}/state`, json(state, "PUT")),
   shopifyStatus: (id: string) => call<{ configured: boolean }>(`/api/projects/${id}/shopify`),
-  pushShopify: (id: string) => call<{ shopify: ShopifyPush }>(`/api/projects/${id}/shopify`, { method: "POST" }),
+  pushShopify: (id: string) => call<{ shopify: ShopifyPush; warnings?: string[] }>(`/api/projects/${id}/shopify`, { method: "POST" }),
 };
