@@ -1,5 +1,5 @@
 import { route } from "@/lib/http";
-import { HttpError, addSource, getMeta, getSources, saveMeta } from "@/lib/project";
+import { HttpError, addSource, getMeta, getSources } from "@/lib/project";
 import { normalizeUpload } from "@/lib/imaging";
 import { MAX_SOURCES } from "@/lib/types";
 
@@ -24,6 +24,5 @@ export const POST = route<{ id: string }>(async (req, { id }) => {
     throw new HttpError(400, e instanceof Error ? e.message : "לא ניתן לקרוא את התמונה");
   }
   const source = await addSource(id, normalized.jpeg, normalized.width, normalized.height);
-  if (meta.sourceKeys) await saveMeta({ ...meta, sourceKeys: [...meta.sourceKeys, source.key] });
   return { source };
 });

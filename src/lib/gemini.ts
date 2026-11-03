@@ -82,6 +82,7 @@ export const AnalysisZ = z.object({
   nameCategories: z.record(z.string(), z.array(z.string())).default({}),
   subtitleSuggestions: z.array(z.string().min(2)).default([]),
   collectionScores: z.array(z.object({ title: z.string(), confidence: z.number() })).default([]),
+  detectedItems: z.array(z.object({ key: z.string(), nameHe: z.string(), nameEn: z.string() })).default([]),
   descriptionHtmlHe: z.string(),
   tagsHe: z.array(z.string()),
   handle: z.string(),
@@ -126,8 +127,14 @@ export function finalizeAnalysis(text: string): ProductAnalysis {
   const collectionScores = parsed.collectionScores
     .map((c) => ({ title: c.title.trim(), confidence: Math.max(0, Math.min(100, Math.round(c.confidence))) }))
     .sort((x, y) => y.confidence - x.confidence);
+  const seen = new Set<string>();
+  const detectedItems = parsed.detectedItems
+    .map((d, i) => ({ key: slugify(d.key) || `item-${i + 1}`, nameHe: d.nameHe.trim(), nameEn: d.nameEn.trim() }))
+    .filter((d) => d.nameHe && !seen.has(d.key) && seen.add(d.key))
+    .slice(0, 6);
   return {
     ...parsed,
+    detectedItems,
     collectionScores,
     nameCategories,
     descriptionHtmlHe: sanitizeHtml(parsed.descriptionHtmlHe),

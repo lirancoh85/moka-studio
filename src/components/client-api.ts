@@ -35,7 +35,8 @@ export const api = {
     form.append("file", file, "photo.jpg");
     return call<{ source: SourceImage }>(`/api/projects/${id}/sources`, { method: "POST", body: form });
   },
-  analyze: (id: string) => call<{ meta: ProjectMeta }>(`/api/projects/${id}/analyze`, { method: "POST" }),
+  analyze: (id: string, focus?: string[]) =>
+    call<{ meta: ProjectMeta }>(`/api/projects/${id}/analyze`, json(focus ? { focus } : {})),
   generate: (
     id: string,
     body: {

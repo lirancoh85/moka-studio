@@ -87,7 +87,9 @@ Without `BLOB_READ_WRITE_TOKEN`, files are stored in `./.data`.
 
 **Shopify.** Creates a **draft** product with the English name as title, the Hebrew subtitle in the product metafield named **כותרת משנה** (found automatically by name; override with `SHOPIFY_SUBTITLE_METAFIELD`), description HTML, product type, tags, vendor and approved images. Nothing is published. Price, variants, inventory and collections are left for you to set in Shopify.
 
-**Storage model.** Every object has a unique key and is never overwritten. Edits to name/state write a new timestamped record and the newest one wins, which avoids CDN cache staleness and race conditions between parallel generations.
+**Storage model.** Each product is one JSON document (`p/{id}/project.json`) plus immutable images (`p/{id}/img/…`); `index.json` lists products for the home page and name checks. Updates use ETag-checked writes (`ifMatch`) with automatic retry, so parallel generations never overwrite each other. The app never calls `list()` — Vercel counts each list as an "advanced operation" (2,000 per 30 days on Hobby). Typical cost: ~1–3 operations per user action. Products saved in the first layout (`projects/{id}/…`) are migrated automatically the first time the app runs without an index.
+
+**Several products in one photo.** The analysis lists every separate product it sees (e.g. a TV unit and a pair of coffee tables). If there's more than one, you choose which to photograph before any image is made; the analysis is then redone for just those items, and the image prompts and quality check are told to leave the others out.
 
 ## Configuration
 

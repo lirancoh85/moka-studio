@@ -111,6 +111,34 @@ export function Studio({
     }
   }, [id]);
 
+  // ---- several products in the photos: which ones to photograph ----
+  const items = analysis?.detectedItems ?? [];
+  const needsItemChoice = Boolean(analysis) && items.length > 1 && meta.itemsConfirmed === false;
+  const [itemsBusy, setItemsBusy] = useState(false);
+  const [itemsError, setItemsError] = useState<string | null>(null);
+
+  async function chooseItems(keys: string[]) {
+    setItemsBusy(true);
+    setItemsError(null);
+    try {
+      const { meta: next } = await api.analyze(id, keys);
+      setMeta(next);
+    } catch (e) {
+      setItemsError(e instanceof Error ? e.message : "הניתוח נכשל");
+    } finally {
+      setItemsBusy(false);
+    }
+  }
+
+  function reopenItems() {
+    if (
+      hasAnyImage &&
+      !window.confirm("שינוי המוצרים ינתח מחדש את המוצר. התמונות הקיימות יישארו אבל ייתכן שלא יתאימו לבחירה החדשה. להמשיך?")
+    )
+      return;
+    patchMeta({ itemsConfirmed: false });
+  }
+
   const autoStarted = useRef(false);
   useEffect(() => {
     if (params.get("analyze") === "1" && !analysis && !autoStarted.current && sources.length) {
@@ -301,9 +329,18 @@ export function Studio({
   // ---- render ----
   return (
     <>
-      <StepBar step={!analysis ? (analyzing ? 2 : 1) : !hasAnyImage ? 3 : approved.length ? 4 : 3} />
+      <StepBar step={needsItemChoice ? 2 : !analysis ? (analyzing ? 2 : 1) : !hasAnyImage ? 3 : approved.length ? 4 : 3} />
 
-      {!analysis ? (
+      {needsItemChoice && analysis ? (
+        <ItemPicker
+          items={items}
+          sources={sources}
+          initial={analysis.focus?.keys ?? items.map((d) => d.key)}
+          busy={itemsBusy}
+          error={itemsError}
+          onConfirm={chooseItems}
+        />
+      ) : !analysis ? (
         <PreAnalysis
           sources={sources}
           analyzing={analyzing}
@@ -328,6 +365,23 @@ export function Studio({
                   <li key={w}>{w}</li>
                 ))}
               </ul>
+            )}
+
+            {items.length > 1 && (
+              <p className="mb-5 flex flex-wrap items-baseline gap-x-2 border-b border-line pb-3 text-[15px]">
+                <span className="text-ink-soft">מצולם:</span>
+                <span className="font-semibold">
+                  {(analysis.focus
+                    ? items.filter((d) => analysis.focus!.keys.includes(d.key))
+                    : items
+                  )
+                    .map((d) => d.nameHe)
+                    .join(" + ")}
+                </span>
+                <button type="button" onClick={reopenItems} className="text-sm text-mocha underline underline-offset-4">
+                  שינוי
+                </button>
+              </p>
             )}
 
             <label htmlFor="pname" className="text-sm text-ink-soft">
@@ -622,6 +676,89 @@ export function Studio({
 
       <Lightbox version={lightbox} sources={sources} onClose={() => setLightbox(null)} />
     </>
+  );
+}
+
+// ---------- item picker ----------
+
+function ItemPicker({
+  items,
+  sources,
+  initial,
+  busy,
+  error,
+  onConfirm,
+}: {
+  items: { key: string; nameHe: string; nameEn: string }[];
+  sources: SourceImage[];
+  initial: string[];
+  busy: boolean;
+  error: string | null;
+  onConfirm: (keys: string[]) => void;
+}) {
+  const [picked, setPicked] = useState<string[]>(initial);
+  const all = picked.length === items.length;
+  const label = all
+    ? "את כולם יחד"
+    : picked.length
+      ? items
+          .filter((d) => picked.includes(d.key))
+          .map((d) => d.nameHe)
+          .join(" + ")
+      : "";
+
+  return (
+    <main className="mx-auto max-w-[900px] px-4 pt-10 pb-24 sm:px-6">
+      <h1 className="font-display text-4xl sm:text-5xl">מצאנו כמה מוצרים בתמונות</h1>
+      <p className="mt-2 max-w-[60ch] text-ink-soft">
+        בחרו מה לצלם. מוצר שלא תבחרו לא יופיע בתמונות, בשם או בתיאור. כדי לצלם גם את השאר, פתחו מוצר חדש והעלו את אותן תמונות.
+      </p>
+
+      <div className="mt-6 flex gap-2 overflow-x-auto">
+        {sources.map((s, i) => (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img key={s.key} src={s.url} alt={`תמונת מקור ${i + 1}`} className="h-24 w-24 shrink-0 object-cover ring-1 ring-line" />
+        ))}
+      </div>
+
+      <fieldset className="mt-8" disabled={busy}>
+        <legend className="sr-only">מוצרים לצילום</legend>
+        <ul className="divide-y divide-line border-y border-line">
+          {items.map((d) => {
+            const on = picked.includes(d.key);
+            return (
+              <li key={d.key}>
+                <label className="flex cursor-pointer items-center gap-3 py-4 text-lg">
+                  <input
+                    type="checkbox"
+                    checked={on}
+                    onChange={() => setPicked((p) => (on ? p.filter((k) => k !== d.key) : [...p, d.key]))}
+                    className="h-5 w-5 accent-[#241d18]"
+                  />
+                  <span className="font-display text-2xl">{d.nameHe}</span>
+                </label>
+              </li>
+            );
+          })}
+        </ul>
+      </fieldset>
+
+      {error && (
+        <p role="alert" className="mt-4 text-error">
+          {error}
+        </p>
+      )}
+
+      <button
+        type="button"
+        disabled={!picked.length || busy}
+        onClick={() => onConfirm(picked)}
+        className="mt-8 bg-ink px-7 py-3 text-lg font-semibold text-paper hover:bg-mocha-deep disabled:opacity-40"
+      >
+        {busy ? "מנתחים מחדש…" : picked.length ? `צלמו ${label}` : "בחרו לפחות מוצר אחד"}
+      </button>
+      {busy && <p className="mt-2 text-sm text-ink-soft">מתאימים את השם, התיאור והקולקציה לבחירה שלכם. כ־20 שניות.</p>}
+    </main>
   );
 }
 

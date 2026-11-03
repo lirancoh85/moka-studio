@@ -1,5 +1,6 @@
+import { z } from "zod";
 import { route } from "@/lib/http";
-import { HttpError, getMeta, getSources, loadImage, saveMeta } from "@/lib/project";
+import { HttpError, editMeta, getMeta, getSources, loadImage } from "@/lib/project";
 import { analyzeProduct } from "@/lib/ai";
 import { collectionTitles, usedNames } from "@/lib/catalog";
 import { COLLECTION_AUTO_THRESHOLD } from "@/lib/types";
@@ -8,13 +9,47 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
-export const POST = route<{ id: string }>(async (_req, { id }) => {
+const Body = z.object({ focus: z.array(z.string()).min(1).optional() }).optional();
+
+/**
+ * Analyze the photos.
+ * - Without `focus`: first analysis. If several products are seen, the user must choose which to photograph.
+ * - With `focus` (keys of detected items): narrow to those items; choosing all of them reuses the first analysis.
+ */
+export const POST = route<{ id: string }>(async (req, { id }) => {
+  const body = Body.safeParse(await req.json().catch(() => undefined));
+  if (!body.success) throw new HttpError(400, "בקשה לא תקינה");
+  const focusKeys = body.data?.focus;
+
   const meta = await getMeta(id);
+  const detected = meta.analysis?.detectedItems ?? [];
+  let focus: { keys: string[]; includeEn: string[]; excludeEn: string[] } | null = null;
+
+  if (focusKeys) {
+    if (!meta.analysis) throw new HttpError(409, "יש לנתח את המוצר קודם");
+    const chosen = detected.filter((d) => focusKeys.includes(d.key));
+    if (!chosen.length) throw new HttpError(400, "בחרו לפחות מוצר אחד");
+    const rest = detected.filter((d) => !focusKeys.includes(d.key));
+    const prevKeys = meta.analysis.focus?.keys ?? detected.map((d) => d.key);
+    const same = prevKeys.length === chosen.length && chosen.every((d) => prevKeys.includes(d.key));
+    if (same) {
+      // Nothing changes: just confirm the choice.
+      return { meta: await editMeta(id, (m) => ({ ...m, itemsConfirmed: true })) };
+    }
+    focus = rest.length
+      ? { keys: chosen.map((d) => d.key), includeEn: chosen.map((d) => d.nameEn), excludeEn: rest.map((d) => d.nameEn) }
+      : null; // all items chosen again → back to the full set
+  }
+
   const sources = await getSources(meta);
   if (!sources.length) throw new HttpError(400, "העלו לפחות תמונה אחת של המוצר");
   const images = await Promise.all(sources.map((s) => loadImage(s.key).then((o) => o.body)));
   const [{ titles }, used] = await Promise.all([collectionTitles(), usedNames(id)]);
-  const analysis = await analyzeProduct(images, { collections: titles, usedNames: used });
+  const analysis = await analyzeProduct(images, { collections: titles, usedNames: used, focus });
+
+  // Keep the original list of items so the choice can be changed later.
+  if (focusKeys) analysis.detectedItems = detected;
+  analysis.focus = focus;
 
   // Drop any taken names the model suggested anyway.
   const taken = new Set(used);
@@ -30,15 +65,21 @@ export const POST = route<{ id: string }>(async (_req, { id }) => {
   analysis.collectionScores = scores;
   const top = scores[0];
   const auto = top && top.confidence >= COLLECTION_AUTO_THRESHOLD ? top.title : null;
-  const next = {
-    ...meta,
-    analysis,
-    sourceKeys: sources.map((s) => s.key),
-    name: meta.name || analysis.nameSuggestions[0] || "",
-    collection: meta.collection ?? auto,
-    collectionAuto: meta.collection ? meta.collectionAuto : Boolean(auto),
-    subtitle: meta.subtitle || analysis.subtitleSuggestions[0] || analysis.furnitureTypeHe,
-  };
-  await saveMeta(next);
+  const multiple = (analysis.detectedItems?.length ?? 0) > 1;
+
+  const next = await editMeta(id, (m) => {
+    // A new choice of items is a different product: refresh the suggestions instead of keeping old ones.
+    const fresh = Boolean(focusKeys);
+    return {
+      ...m,
+      analysis,
+      sourceKeys: sources.map((s) => s.key),
+      name: (!fresh && m.name) || analysis.nameSuggestions[0] || "",
+      collection: !fresh && m.collection ? m.collection : auto,
+      collectionAuto: !fresh && m.collection ? m.collectionAuto : Boolean(auto),
+      subtitle: (!fresh && m.subtitle) || analysis.subtitleSuggestions[0] || analysis.furnitureTypeHe,
+      itemsConfirmed: fresh || !multiple,
+    };
+  });
   return { meta: next };
 });

@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 export const GET = route<{ key: string[] }>(async (req, { key }) => {
   const k = key.join("/");
-  if (!k.startsWith("projects/") || !/\.(jpg|jpeg|png|webp)$/.test(k)) throw new HttpError(404, "Not found");
+  if (!(k.startsWith("p/") || k.startsWith("projects/")) || !/\.(jpg|jpeg|png|webp)$/.test(k)) throw new HttpError(404, "Not found");
   const obj = await getObject(k);
   if (!obj) throw new HttpError(404, "Not found");
   const download = new URL(req.url).searchParams.get("download");

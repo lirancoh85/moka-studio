@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { route } from "@/lib/http";
-import { HttpError, getMeta, listVersions, saveMeta } from "@/lib/project";
+import { HttpError, editMeta, getMeta, listVersions } from "@/lib/project";
 import { EXTRA_STYLES, MAX_EXTRAS, type ExtraShot, type ExtraStyle } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -31,16 +31,13 @@ export const POST = route<{ id: string }>(async (req, { id }) => {
     brief: parsed.data.brief || undefined,
     createdAt: Date.now(),
   };
-  const next = { ...meta, extras: [...extras, extra] };
-  await saveMeta(next);
+  const next = await editMeta(id, (m) => ({ ...m, extras: [...(m.extras ?? []), extra] }));
   return { meta: next, extra };
 });
 
 /** Remove an extra shot (its images stay in storage but are no longer shown or exported). */
 export const DELETE = route<{ id: string }>(async (req, { id }) => {
   const slot = new URL(req.url).searchParams.get("slot") ?? "";
-  const meta = await getMeta(id);
-  const next = { ...meta, extras: (meta.extras ?? []).filter((e) => e.slot !== slot) };
-  await saveMeta(next);
+  const next = await editMeta(id, (m) => ({ ...m, extras: (m.extras ?? []).filter((e) => e.slot !== slot) }));
   return { meta: next };
 });

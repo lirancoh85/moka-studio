@@ -21,10 +21,10 @@ export function imageModel() {
 
 export async function analyzeProduct(
   images: Buffer[],
-  ctx: { collections: string[]; usedNames: string[] },
+  ctx: { collections: string[]; usedNames: string[]; focus?: { includeEn: string[]; excludeEn: string[] } | null },
 ): Promise<ProductAnalysis> {
-  if (mockAi()) return (await import("./mock-ai")).mockAnalysis(ctx.collections);
-  const prompt = analysisPrompt(ctx.collections, ctx.usedNames);
+  if (mockAi()) return (await import("./mock-ai")).mockAnalysis(ctx.collections, ctx.focus);
+  const prompt = analysisPrompt(ctx.collections, ctx.usedNames, ctx.focus);
   return provider() === "openai" ? openaiAnalyze(images, prompt) : geminiAnalyze(images, prompt);
 }
 

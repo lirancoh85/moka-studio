@@ -1,7 +1,7 @@
 import { route } from "@/lib/http";
 import { provider } from "@/lib/ai";
 import { openaiPing } from "@/lib/openai";
-import { getObject, putObject, useBlob } from "@/lib/storage";
+import { readDoc, useBlob } from "@/lib/storage";
 import { shopifyConfigured, subtitleField } from "@/lib/shopify";
 
 export const runtime = "nodejs";
@@ -19,11 +19,11 @@ export const GET = route(async () => {
     password: Boolean(process.env.STUDIO_PASSWORD),
     shopify: shopifyConfigured(),
   };
+  // Read-only check (one cheap read; never writes, so opening this page costs no upload operations).
   try {
-    const key = `health/${Date.now()}-${Math.random().toString(36).slice(2)}.json`;
-    await putObject(key, Buffer.from("{}"), "application/json");
-    checks.storageWrite = "ok";
-    checks.storageRead = (await getObject(key)) ? "ok" : "missing";
+    const index = await readDoc<{ projects: unknown[] }>("index.json");
+    checks.storage = "ok";
+    checks.products = index?.value.projects.length ?? 0;
   } catch (e) {
     checks.storageError = String((e as Error)?.message ?? e).slice(0, 300);
   }

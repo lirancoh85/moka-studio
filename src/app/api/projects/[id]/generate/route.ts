@@ -26,6 +26,9 @@ export const POST = route<{ id: string }>(async (req, { id }) => {
 
   const meta = await getMeta(id);
   if (!meta.analysis) throw new HttpError(409, "יש לנתח את המוצר לפני יצירת תמונות");
+  if ((meta.analysis.detectedItems?.length ?? 0) > 1 && meta.itemsConfirmed === false) {
+    throw new HttpError(409, "בחרו אילו מוצרים לצלם לפני יצירת תמונות");
+  }
   const sources = await getSources(meta);
   if (!sources.length) throw new HttpError(400, "אין תמונות מקור");
   const refs = await Promise.all(sources.map((s) => loadImage(s.key).then((o) => o.body)));

@@ -3,11 +3,15 @@ import sharp from "sharp";
 import type { ProductAnalysis } from "./types";
 
 /** Deterministic stand-ins for Gemini so the full UI flow can be exercised locally (STUDIO_MOCK_AI=1). */
-export function mockAnalysis(collections: string[] = []): ProductAnalysis {
+export function mockAnalysis(
+  collections: string[] = [],
+  focus?: { includeEn: string[]; excludeEn: string[] } | null,
+): ProductAnalysis {
+  const multi = process.env.STUDIO_MOCK_MULTI === "1";
   return {
     isFurniture: true,
     qualityWarnings: [],
-    furnitureTypeHe: "ספה תלת־מושבית",
+    furnitureTypeHe: focus ? `רק: ${focus.includeEn.join(" + ")}` : multi ? "מזנון וזוג שולחנות" : "ספה תלת־מושבית",
     furnitureTypeEn: "three-seater sofa",
     colorsHe: ["שמנת", "אגוז כהה"],
     materialsHe: ["בוקלה", "עץ אגוז"],
@@ -28,6 +32,12 @@ export function mockAnalysis(collections: string[] = []): ProductAnalysis {
       classic: ["CLARA", "LOUIS", "SOPHIA", "AUGUST"],
       modern: ["NOVA", "ARLO", "LUMA", "KAI"],
     },
+    detectedItems: multi
+      ? [
+          { key: "tv-unit", nameHe: "מזנון טלוויזיה", nameEn: "TV unit" },
+          { key: "coffee-tables", nameHe: "זוג שולחנות סלון", nameEn: "pair of coffee tables" },
+        ]
+      : [{ key: "sofa", nameHe: "ספה תלת־מושבית", nameEn: "three-seater sofa" }],
     collectionScores: collections
       .map((title) => {
         const low = process.env.STUDIO_MOCK_LOWCONF === "1";

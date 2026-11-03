@@ -30,12 +30,25 @@ ${NAME_RULES.split("Categories:")[0].trim()}
 Do not suggest any of these (already shown or already used by another product): ${exclude.join(", ") || "(none)"}.`;
 }
 
-export function analysisPrompt(collections: string[], usedNames: string[]) {
+export function analysisPrompt(
+  collections: string[],
+  usedNames: string[],
+  focus?: { includeEn: string[]; excludeEn: string[] } | null,
+) {
+  const focusBlock = focus
+    ? `
+
+FOCUS — IMPORTANT: The user chose to photograph ONLY: ${focus.includeEn.join(" + ")}.
+Treat ${focus.excludeEn.join(", ")} exactly like the showroom background: do not describe, name, count or mention them anywhere. Every field below (type, colors, materials, features, productSpecEn, mustKeepEn, closeup, names, subtitles, description, tags, collection) is about the chosen item(s) only. Still return detectedItems for everything seen.`
+    : "";
   return `You are the senior merchandiser and product photographer for MOKA, a premium Israeli furniture brand (comparable to high-end European furniture houses).
 
 The attached photographs were taken in a showroom and show ONE furniture product, possibly from several angles. Analyze only that product. Ignore the room, floor, price tags, signage, people and any other furniture.
 
+${focusBlock}
+
 Return JSON matching the schema. Rules:
+- detectedItems: every separate furniture PRODUCT that is the subject of the photos — items displayed together as the focus (e.g. a TV unit with coffee tables in front of it). Not furniture that merely stands in the background, not decor, rugs, price signs or the floor. Identical or matching pieces sold together are ONE entry (e.g. "pair of nesting coffee tables" / "זוג שולחנות סלון"). key: short latin slug; nameHe: short Hebrew name; nameEn: short English name. A single product → exactly one entry.${focus ? "" : "\n- If detectedItems has more than one entry, analyze ALL of them together as one set in every other field."}
 - Hebrew fields: natural, elegant Israeli Hebrew as written by a premium design brand. No English words inside Hebrew fields unless it is a material name commonly written in English (e.g. "בוקלה" is preferred over "boucle").
 - productSpecEn: 60-120 words. A precise visual specification someone could use to recreate the exact item: silhouette, proportions (relative width/depth/height), seat/back/arm construction, cushion count and layout, leg shape, material and color for every visible part, seams, piping, tufting, stitching, hardware. Only state what is visible.
 - mustKeepEn: 3-7 short items, the distinctive details that make this product recognizable.
@@ -85,6 +98,14 @@ const ANALYSIS_SCHEMA_BASE = {
       required: [...NAME_CATEGORIES],
     },
     subtitleSuggestions: { type: "array", items: { type: "string" } },
+    detectedItems: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { key: { type: "string" }, nameHe: { type: "string" }, nameEn: { type: "string" } },
+        required: ["key", "nameHe", "nameEn"],
+      },
+    },
     collectionScores: {
       type: "array",
       items: {
@@ -115,6 +136,7 @@ const ANALYSIS_SCHEMA_BASE = {
     "catalogAngle",
     "nameCategories",
     "subtitleSuggestions",
+    "detectedItems",
     "collectionScores",
     "descriptionHtmlHe",
     "tagsHe",
@@ -138,6 +160,7 @@ const ANALYSIS_SCHEMA_BASE = {
     "catalogAngle",
     "nameCategories",
     "subtitleSuggestions",
+    "detectedItems",
     "collectionScores",
     "descriptionHtmlHe",
     "tagsHe",
@@ -153,6 +176,12 @@ PRODUCT FIDELITY — non-negotiable:
 - Match the exact colors and materials of the references under the new lighting. Do not shift hue, change the fabric, or upgrade the finish.
 - Do not redesign, simplify, stylize, add or remove any part of the product.
 - Use everything in the references that is NOT the product (showroom floor, walls, price tags, labels, other furniture, people) only as information to ignore.
+
+- If the product is made of several pieces (e.g. a pair of tables), show exactly that number of pieces, each with its own real footprint (square vs. rectangular), size relative to the others, height and top pattern.${
+    a.focus?.excludeEn.length
+      ? `\n- The references also show ${a.focus.excludeEn.join(", ")}. These are NOT part of this product: never show them, in any form.`
+      : ""
+  }
 
 Product specification: ${a.productSpecEn}
 Details that must be preserved exactly: ${a.mustKeepEn.join("; ")}.`;
@@ -287,6 +316,8 @@ The first ${refCount} image(s) are REAL showroom photos of the product (${a.furn
 
 Reference specification: ${a.productSpecEn}
 Must be preserved: ${a.mustKeepEn.join("; ")}.
+
+${a.focus?.excludeEn.length ? `This product is ONLY: ${a.focus.includeEn.join(" + ")}. The real photos also show ${a.focus.excludeEn.join(", ")}, which must NOT appear in the generated photo; if any of them appears, mark partsAddedOrMissing as not ok.\n` : ""}Count the separate pieces of the product in the real photos and in the generated photo (e.g. how many tables). A different count, or a piece with a different footprint (square vs. rectangular), relative size or top pattern, is NOT ok (partsAddedOrMissing / proportions / details).
 
 Compare ONLY the product. Ignore background, room, props, lighting mood, camera angle and image quality — those are allowed to differ. Different camera angles are expected: judge whether the product would look like this from that angle.
 ${macro ? "This is a MACRO close-up of a detail: judge only color, material/texture and the visible construction details. Mark silhouette, proportions and partsAddedOrMissing as ok with note \"לא רלוונטי בקלוז־אפ\" unless the detail clearly shows a part that does not exist on the real product." : ""}

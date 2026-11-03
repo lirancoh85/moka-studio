@@ -119,6 +119,20 @@ export interface SourceImage {
   createdAt: number;
 }
 
+/** A separate furniture product seen in the photos (e.g. a TV unit and a pair of coffee tables). */
+export interface DetectedItem {
+  key: string;
+  nameHe: string;
+  nameEn: string;
+}
+
+/** Which of the detected items this product covers. */
+export interface ItemFocus {
+  keys: string[];
+  includeEn: string[];
+  excludeEn: string[];
+}
+
 /** Result of the vision analysis. Hebrew fields drive the UI and Shopify; English fields drive prompts. */
 export interface ProductAnalysis {
   isFurniture: boolean;
@@ -142,6 +156,10 @@ export interface ProductAnalysis {
   nameSuggestions: string[];
   /** English names grouped by style category. Older projects don't have it. */
   nameCategories?: Record<NameCategory, string[]>;
+  /** Every separate product seen in the photos (one entry for sets of identical pieces). */
+  detectedItems?: DetectedItem[];
+  /** Set when the analysis was narrowed to some of the detected items. */
+  focus?: ItemFocus | null;
   /** Model's estimate for each store collection, highest first. */
   collectionScores?: CollectionScore[];
   /** Hebrew subtitles: what the product is, e.g. "ספת תלת מושב מדהימה". */
@@ -165,6 +183,8 @@ export interface ProjectMeta {
   collection?: string | null;
   /** True when it was chosen automatically from a confident guess. */
   collectionAuto?: boolean;
+  /** False while the user still has to choose which detected items to photograph. */
+  itemsConfirmed?: boolean;
 }
 
 export type VersionKind = "generate" | "regenerate" | "edit";
