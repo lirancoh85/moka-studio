@@ -3,9 +3,11 @@ import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import {
+  BlobNotFoundError,
   BlobPreconditionFailedError,
   BlobStoreSuspendedError,
   get as blobGet,
+  head as blobHead,
   list as blobList,
   put as blobPut,
 } from "@vercel/blob";
@@ -185,17 +187,63 @@ export async function getObject(
   }
 }
 
+/** ETags can come back weak (W/"…") or quoted from the CDN; compare their core value. */
+const etagCore = (e: string) => e.replace(/^W\//, "").replace(/"/g, "").trim();
+
+/**
+ * The authoritative ETag of a stored object, from the Blob API (not the CDN, which can rewrite ETags
+ * of compressed JSON). This is the same value `put({ ifMatch })` checks against. Null if missing.
+ */
+async function apiEtag(key: string): Promise<string | null> {
+  try {
+    return (await blobHead(key, { token: blobToken() })).etag;
+  } catch (err) {
+    if (err instanceof BlobNotFoundError || /not.?found|does not exist/i.test(String((err as Error)?.message))) {
+      return null;
+    }
+    translate(err);
+  }
+}
+
 /** Read a JSON document with its ETag (always fresh). */
 export async function readDoc<T>(key: string): Promise<{ value: T; etag: string } | null> {
-  const obj = await getObject(key, { fresh: true });
-  return obj ? { value: JSON.parse(obj.body.toString("utf8")) as T, etag: obj.etag } : null;
+  if (!useBlob()) {
+    const obj = await getObject(key, { fresh: true });
+    return obj ? { value: JSON.parse(obj.body.toString("utf8")) as T, etag: obj.etag } : null;
+  }
+  assertKey(key);
+  const etag = await apiEtag(key);
+  if (!etag) return null;
+  // Content via the uncached URL; if it's older than the API's version, read again briefly.
+  let obj = await getObject(key, { fresh: true });
+  for (let i = 0; i < 3 && obj && obj.etag && etagCore(obj.etag) !== etagCore(etag); i++) {
+    await new Promise((r) => setTimeout(r, 150 * (i + 1)));
+    obj = await getObject(key, { fresh: true });
+  }
+  if (!obj) return null;
+  return { value: JSON.parse(obj.body.toString("utf8")) as T, etag };
 }
+
+/** Set once conditional writes are seen rejecting an unchanged object (the store doesn't honor them). */
+let conditionalWritesBroken = false;
 
 /**
  * Read-modify-write a JSON document safely. `fn` receives the current value (or null if it doesn't
  * exist) and returns the next value, or `undefined` to skip writing. Retries on concurrent changes.
  */
-export async function updateDoc<T>(key: string, fn: (current: T | null) => T | undefined): Promise<T> {
+export function updateDoc<T>(key: string, fn: (current: T | null) => T | undefined): Promise<T> {
+  // Serialize updates of the same document within this server instance (on top of the ETag check).
+  const prev = docLocks.get(key) ?? Promise.resolve();
+  const run = prev.catch(() => undefined).then(() => updateDocOnce(key, fn));
+  docLocks.set(key, run);
+  return run.finally(() => {
+    if (docLocks.get(key) === run) docLocks.delete(key);
+  });
+}
+
+const docLocks = new Map<string, Promise<unknown>>();
+
+async function updateDocOnce<T>(key: string, fn: (current: T | null) => T | undefined): Promise<T> {
   for (let attempt = 0; attempt < 8; attempt++) {
     const cur = await readDoc<T>(key);
     const next = fn(cur?.value ?? null);
@@ -205,11 +253,26 @@ export async function updateDoc<T>(key: string, fn: (current: T | null) => T | u
     }
     const body = Buffer.from(JSON.stringify(next));
     try {
-      await putObject(key, body, "application/json", cur ? { ifMatch: cur.etag } : {});
+      if (cur && conditionalWritesBroken) {
+        await putObject(key, body, "application/json", { overwrite: true });
+      } else {
+        await putObject(key, body, "application/json", cur ? { ifMatch: cur.etag } : {});
+      }
       return next;
     } catch (err) {
-      const raced = err instanceof EtagMismatch || (!cur && /already exists/i.test(String((err as Error)?.message)));
+      const mismatch = err instanceof EtagMismatch;
+      const raced = mismatch || (!cur && /already exists/i.test(String((err as Error)?.message)));
       if (!raced) throw err;
+      // Rejected although nobody changed it? Then the check itself is failing: save without it.
+      if (mismatch && cur && useBlob()) {
+        const now = await apiEtag(key);
+        if (now && etagCore(now) === etagCore(cur.etag)) {
+          console.warn(`[storage] conditional write rejected for unchanged ${key}; falling back to overwrite`);
+          conditionalWritesBroken = true;
+          await putObject(key, body, "application/json", { overwrite: true });
+          return next;
+        }
+      }
       await new Promise((r) => setTimeout(r, 40 + Math.random() * 120 * (attempt + 1)));
     }
   }
